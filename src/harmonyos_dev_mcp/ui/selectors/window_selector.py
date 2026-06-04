@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from ..ui_common import normalize_bundle_name
+from ..common import normalize_bundle_name
 
 
 def resolve_window_target(

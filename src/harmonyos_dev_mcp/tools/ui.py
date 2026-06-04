@@ -18,7 +18,7 @@ from ..types import (
     ScreenshotResult,
     SwipeResult,
 )
-from ..utils.normalizers.element import attach_element_metadata, build_lookup_hint, compact_candidate_handles
+from ..ui.normalizers.element import attach_element_metadata, build_lookup_hint, compact_candidate_handles
 from .device_support import DeviceToolSupport
 from harmonyos_dev_mcp._common.tools.response import error_result, from_action_result, mcp_response
 

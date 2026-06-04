@@ -6,7 +6,7 @@
 
 from .hvigor_wrapper import HvigorWrapper
 from .hilogtool_wrapper import HilogtoolWrapper
-from .ui_operations import UiTestWrapper
+from harmonyos_dev_mcp.ui.operations import UiTestWrapper
 
 __all__ = [
     "HvigorWrapper",

@@ -10,10 +10,10 @@ from harmonyos_dev_mcp._common.tools.registry import mcp_tool
 
 from ..container import get_hdc, get_ui_operations
 from ..types import ListWindowsResult, UITreeResult, WaitElementResult, WaitElementState
-from ..utils.normalizers.element import normalize_element
-from ..utils.normalizers.window import normalize_windows
-from ..utils.ui_common import normalize_bundle_name
-from ..utils.uitree_parser import UITreeParser
+from ..ui.common import normalize_bundle_name
+from ..ui.normalizers.element import normalize_element
+from ..ui.normalizers.window import normalize_windows
+from ..ui.tree_parser import UITreeParser
 from .device_support import DeviceToolSupport
 from harmonyos_dev_mcp._common.tools.response import error_result, from_action_result, mcp_response, ok_result
 

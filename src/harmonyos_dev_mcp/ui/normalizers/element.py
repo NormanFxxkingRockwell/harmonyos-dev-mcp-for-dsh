@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from ..ui_common import element_to_bounds
+from ..common import element_to_bounds
 
 
 def build_lookup_hint(

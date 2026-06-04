@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ..ui_common import normalize_bundle_name, rect_to_bounds
+from ..common import normalize_bundle_name, rect_to_bounds
 
 
 def normalize_window(window: Dict[str, Any]) -> Dict[str, Any]:
