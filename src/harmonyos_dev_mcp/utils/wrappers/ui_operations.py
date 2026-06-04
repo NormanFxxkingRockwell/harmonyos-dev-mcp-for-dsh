@@ -7,7 +7,7 @@ import re
 from typing import Dict, Any, Optional, List, Tuple
 from loguru import logger
 
-from ..hdc import HdcWrapper
+from harmonyos_dev_mcp.device.hdc import HdcWrapper
 
 
 class UiTestWrapper:

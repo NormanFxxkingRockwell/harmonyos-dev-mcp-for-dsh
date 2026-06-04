@@ -33,7 +33,7 @@ def reset_container():
 @pytest.fixture
 def mock_hdc() -> Generator[MagicMock, None, None]:
     import harmonyos_dev_mcp  # noqa: F401
-    from harmonyos_dev_mcp.utils.hdc import HdcWrapper
+    from harmonyos_dev_mcp.device.hdc import HdcWrapper
     from harmonyos_dev_mcp.container import container
     import harmonyos_dev_mcp.container as container_mod
 

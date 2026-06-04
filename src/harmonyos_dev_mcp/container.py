@@ -6,7 +6,7 @@ container = Container()
 
 
 def _register_services():
-    from .utils.hdc import HdcWrapper
+    from .device.hdc import HdcWrapper
     from .utils.wrappers.hilogtool_wrapper import HilogtoolWrapper
     from .utils.wrappers.ui_operations import UiTestWrapper
 
@@ -26,7 +26,7 @@ def _ensure_registered():
 
 
 def get_hdc():
-    from .utils.hdc import HdcWrapper
+    from .device.hdc import HdcWrapper
 
     _ensure_registered()
     return container.get(HdcWrapper)

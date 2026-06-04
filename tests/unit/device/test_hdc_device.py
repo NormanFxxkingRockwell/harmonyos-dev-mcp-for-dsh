@@ -1,4 +1,4 @@
-from harmonyos_dev_mcp.utils.hdc.hdc_device import HdcDevice
+from harmonyos_dev_mcp.device.hdc.hdc_device import HdcDevice
 
 
 class _FakeHdcDevice(HdcDevice):
