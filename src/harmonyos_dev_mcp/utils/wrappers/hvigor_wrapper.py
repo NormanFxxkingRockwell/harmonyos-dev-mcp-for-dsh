@@ -32,6 +32,10 @@ from harmonyos_dev_mcp.build.signing import (
     resolve_module_root,
     resolve_profile_relative_path,
 )
+from harmonyos_dev_mcp.build.targets import build_target
+from harmonyos_dev_mcp.build.targets.common import run_base_hap_build_for_repack
+from harmonyos_dev_mcp.build.targets.hnp import build_hnp_target
+from harmonyos_dev_mcp.build.targets.hsp import build_hap_with_hsp_target, build_hsp_outputs
 from harmonyos_dev_mcp.build.toolchain_discovery import (
     ToolchainDiscovery,
     has_java_executable,
@@ -132,6 +136,10 @@ class HvigorWrapper:
             env["JAVA_HOME"] = str(self.java_home)
             env["PATH"] = f"{self.java_home / 'bin'}{os.pathsep}{env.get('PATH', '')}"
         return env
+
+    @staticmethod
+    def _now() -> float:
+        return time.time()
 
     def _execute_command(self, args: List[str], timeout: int = None) -> Dict[str, Any]:
         """Execute hvigor with the resolved toolchain and environment."""
@@ -639,35 +647,14 @@ class HvigorWrapper:
         is_clean: bool,
         purpose: str,
     ) -> Dict[str, Any]:
-        if is_clean:
-            clean_result = self.clean(product=product, module_name=module_name)
-            if not clean_result["success"]:
-                return {
-                    "success": False,
-                    "error_code": clean_result.get("error_code", "CLEAN_FAILED"),
-                    "stdout": clean_result.get("stdout", ""),
-                    "stderr": clean_result.get("stderr", "clean failed"),
-                    "output_path": None,
-                }
-
-        logger.info(f"build base HAP for {purpose} packaging product={product}")
-        args: List[str] = [
-            "--no-daemon",
-            "--mode",
-            "module",
-            "-p",
-            f"product={product}",
-            "-p",
-            f"buildMode={build_mode}",
-        ]
-        if module_name:
-            args.extend(["-p", f"module={module_name}"])
-        args.extend(["assembleHap", "--analyze=normal", "--parallel", "--incremental"])
-        result = self._execute_command(args)
-        if not result["success"]:
-            result["output_path"] = None
-            logger.error(f"base HAP build for {purpose} failed: {result['stderr']}")
-        return result
+        return run_base_hap_build_for_repack(
+            self,
+            build_mode,
+            product,
+            module_name,
+            is_clean,
+            purpose,
+        )
 
     def _repack_and_sign_hnp(
         self,
@@ -690,49 +677,7 @@ class HvigorWrapper:
         module_name: Optional[str],
         is_clean: bool,
     ) -> Dict[str, Any]:
-        base_result = self._run_base_hap_build_for_repack(
-            build_mode,
-            product,
-            module_name,
-            is_clean,
-            "HNP",
-        )
-        if not base_result.get("success"):
-            return base_result
-
-        module_root = self._resolve_module_root(module_name)
-        hnp_source_root = self._find_hnp_source_root(module_root)
-        if hnp_source_root is None:
-            return {
-                "error_code": "HNP_PACKAGE_NOT_FOUND",
-                "stdout": base_result.get("stdout", ""),
-                "stderr": (
-                    "target=hnp requires built HNP packages under a module hnp directory, "
-                    f"for example {module_root / 'hnp'} containing ABI subdirectories with .hnp files"
-                ),
-                "success": False,
-                "output_path": None,
-            }
-
-        signing = self._resolve_repack_signing_config(product, "HNP")
-        if not signing.get("success"):
-            return {
-                "success": False,
-                "error_code": signing["error_code"],
-                "stdout": base_result.get("stdout", ""),
-                "stderr": self._merge_outputs(base_result.get("stderr"), signing["stderr"]),
-                "output_path": None,
-            }
-
-        result = self._repack_and_sign_hnp(module_root, hnp_source_root, product, signing)
-        result["stdout"] = self._merge_outputs(base_result.get("stdout"), result.get("stdout"))
-        result["stderr"] = self._merge_outputs(base_result.get("stderr"), result.get("stderr"))
-        if result.get("success"):
-            logger.info(f"HNP build succeeded: {result['output_path']}")
-        else:
-            logger.error(f"HNP build failed: {result.get('stderr', '')}")
-
-        return result
+        return build_hnp_target(self, build_mode, product, module_name, is_clean)
 
     def _build_hsp_outputs(
         self,
@@ -740,86 +685,7 @@ class HvigorWrapper:
         product: str,
         hsp_module_names: Optional[List[str]],
     ) -> Dict[str, Any]:
-        modules = self._resolve_hsp_module_names(hsp_module_names)
-        if not modules:
-            modules = self._discover_shared_modules()
-        if not modules:
-            return {
-                "success": False,
-                "error_code": "HSP_MODULE_NOT_FOUND",
-                "stdout": "",
-                "stderr": (
-                    "include_hsp=true requires at least one shared module. Pass hsp_module_names "
-                    "or add modules whose src/main/module.json5 declares "
-                    'type="shared".'
-                ),
-                "output_paths": [],
-            }
-
-        outputs: List[Path] = []
-        stdout_parts: List[str] = []
-        stderr_parts: List[str] = []
-        for module in modules:
-            result = self.build(
-                target="hsp",
-                build_mode=build_mode,
-                product=product,
-                module_name=module,
-                is_clean=False,
-                include_hsp=False,
-            )
-            if not result.get("success") and result.get("error_code") in {
-                "BUILD_OUTPUT_NOT_FOUND",
-                "STALE_BUILD_ARTIFACT",
-            }:
-                logger.info(f"retry HSP module build with clean because output was not refreshed: {module}")
-                retry_result = self.build(
-                    target="hsp",
-                    build_mode=build_mode,
-                    product=product,
-                    module_name=module,
-                    is_clean=True,
-                    include_hsp=False,
-                )
-                if retry_result.get("success"):
-                    result = retry_result
-                else:
-                    retry_result["stdout"] = self._merge_outputs(
-                        result.get("stdout"),
-                        retry_result.get("stdout"),
-                    )
-                    retry_result["stderr"] = self._merge_outputs(
-                        result.get("stderr"),
-                        retry_result.get("stderr"),
-                    )
-                    result = retry_result
-            stdout_parts.append(result.get("stdout", ""))
-            stderr_parts.append(result.get("stderr", ""))
-            if not result.get("success"):
-                return {
-                    "success": False,
-                    "error_code": result.get("error_code", "HSP_BUILD_FAILED"),
-                    "stdout": self._merge_outputs(*stdout_parts),
-                    "stderr": self._merge_outputs(*stderr_parts),
-                    "output_paths": [],
-                }
-            output_path = result.get("output_path")
-            if not output_path:
-                return {
-                    "success": False,
-                    "error_code": "HSP_OUTPUT_NOT_FOUND",
-                    "stdout": self._merge_outputs(*stdout_parts),
-                    "stderr": f"HSP build completed but no output path was returned for module {module}",
-                    "output_paths": [],
-                }
-            outputs.append(Path(output_path))
-
-        return {
-            "success": True,
-            "stdout": self._merge_outputs(*stdout_parts),
-            "stderr": self._merge_outputs(*stderr_parts),
-            "output_paths": outputs,
-        }
+        return build_hsp_outputs(self, build_mode, product, hsp_module_names)
 
     @staticmethod
     def _resolve_hsp_module_names(hsp_module_names: Optional[List[str]]) -> List[str]:
@@ -847,66 +713,14 @@ class HvigorWrapper:
         hsp_module_names: Optional[List[str]],
         is_clean: bool,
     ) -> Dict[str, Any]:
-        base_result = self._run_base_hap_build_for_repack(
+        return build_hap_with_hsp_target(
+            self,
             build_mode,
             product,
             module_name,
-            is_clean,
-            "HSP",
-        )
-        if not base_result.get("success"):
-            return base_result
-
-        hsp_result = self._build_hsp_outputs(
-            build_mode,
-            product,
             hsp_module_names,
+            is_clean,
         )
-        if not hsp_result.get("success"):
-            return {
-                **hsp_result,
-                "stdout": self._merge_outputs(base_result.get("stdout"), hsp_result.get("stdout")),
-                "stderr": self._merge_outputs(base_result.get("stderr"), hsp_result.get("stderr")),
-                "output_path": None,
-            }
-
-        module_root = self._resolve_module_root(module_name)
-        signing = self._resolve_repack_signing_config(product, "HSP")
-        if not signing.get("success"):
-            return {
-                "success": False,
-                "error_code": signing["error_code"],
-                "stdout": self._merge_outputs(base_result.get("stdout"), hsp_result.get("stdout")),
-                "stderr": self._merge_outputs(
-                    base_result.get("stderr"),
-                    hsp_result.get("stderr"),
-                    signing["stderr"],
-                ),
-                "output_path": None,
-            }
-
-        result = self._repack_and_sign_hap_with_hsp(
-            module_root,
-            hsp_result["output_paths"],
-            product,
-            signing,
-        )
-        result["hsp_output_paths"] = [str(path) for path in hsp_result["output_paths"]]
-        result["stdout"] = self._merge_outputs(
-            base_result.get("stdout"),
-            hsp_result.get("stdout"),
-            result.get("stdout"),
-        )
-        result["stderr"] = self._merge_outputs(
-            base_result.get("stderr"),
-            hsp_result.get("stderr"),
-            result.get("stderr"),
-        )
-        if result.get("success"):
-            logger.info(f"HSP-integrated HAP build succeeded: {result['output_path']}")
-        else:
-            logger.error(f"HSP-integrated HAP build failed: {result.get('stderr', '')}")
-        return result
 
     def build(
         self,
@@ -939,138 +753,16 @@ class HvigorWrapper:
         if validation_error is not None:
             return validation_error
 
-        if target == "hnp":
-            return self._build_hnp(build_mode, product, module_name, is_clean)
-        if target == "hap" and include_hsp:
-            return self._build_hap_with_hsp(
-                build_mode,
-                product,
-                module_name,
-                hsp_module_names,
-                is_clean,
-            )
-
-        build_started_at = time.time()
-        if is_clean:
-            clean_result = self.clean(
-                product=product,
-                module_name=module_name if target in {"hap", "har", "hsp"} else None,
-            )
-            if not clean_result["success"]:
-                return {
-                    "success": False,
-                    "error_code": clean_result.get("error_code", "CLEAN_FAILED"),
-                    "stdout": clean_result.get("stdout", ""),
-                    "stderr": clean_result.get("stderr", "clean failed"),
-                    "output_path": None,
-                }
-
-        logger.info(f"build {target.upper()} for product={product}")
-        args: List[str] = ["--no-daemon"]
-        if target in {"hap", "har", "hsp"}:
-            args.extend(["--mode", "module"])
-        args.extend(["-p", f"product={product}", "-p", f"buildMode={build_mode}"])
-        if target in {"har", "hsp"} and module_name:
-            args.extend(["-p", f"module={module_name}"])
-        args.extend(
-            [
-                {"hap": "assembleHap", "har": "assembleHar", "hsp": "assembleHsp", "app": "assembleApp"}[target],
-                "--analyze=normal",
-                "--parallel",
-                "--incremental",
-            ]
+        return build_target(
+            self,
+            target=target,
+            build_mode=build_mode,
+            product=product,
+            module_name=module_name,
+            is_clean=is_clean,
+            include_hsp=include_hsp,
+            hsp_module_names=hsp_module_names,
         )
-        result = self._execute_command(args)
-        if result["success"]:
-            logged_output = None
-            artifact_source = ""
-            sign_status = "unknown"
-            output_path = self._find_output_from_metadata(target, product, module_name, not_before=build_started_at)
-            if output_path is not None:
-                artifact_source = "metadata"
-                sign_status = self._resolve_sign_status(output_path)
-            if output_path is None:
-                logged_output = self._extract_output_path_from_logs(
-                    result.get("stdout", ""),
-                    result.get("stderr", ""),
-                    target,
-                )
-                output_path = self._extract_output_path_from_logs(
-                    result.get("stdout", ""),
-                    result.get("stderr", ""),
-                    target,
-                    not_before=build_started_at,
-                )
-                if output_path is not None:
-                    artifact_source = "logs"
-                    sign_status = self._resolve_sign_status(output_path)
-            if output_path is None:
-                output_path = self._find_build_output(
-                    target,
-                    build_mode,
-                    product,
-                    module_name,
-                    not_before=build_started_at,
-                )
-                if output_path is not None:
-                    artifact_source = "scan"
-                    sign_status = self._resolve_sign_status(output_path)
-            if output_path is None and logged_output is not None and not self._is_fresh_output(logged_output, build_started_at):
-                return {
-                    "success": False,
-                    "error_code": "STALE_BUILD_ARTIFACT",
-                    "stdout": result.get("stdout", ""),
-                    "stderr": self._build_output_resolution_guidance(stale_logged_output=True),
-                    "output_path": None,
-                }
-            if output_path is None:
-                output_path = self._find_build_output(
-                    target,
-                    build_mode,
-                    product,
-                    module_name,
-                )
-                if output_path is not None:
-                    artifact_source = "cached_scan"
-                    sign_status = self._resolve_sign_status(output_path)
-            if output_path is None:
-                return {
-                    "success": False,
-                    "error_code": "BUILD_OUTPUT_NOT_FOUND",
-                    "stdout": result.get("stdout", ""),
-                    "stderr": self._build_output_resolution_guidance(),
-                    "output_path": None,
-                }
-            if (
-                target == "hap"
-                and output_path is not None
-                and "unsigned" in output_path.name.lower()
-            ):
-                fallback_result = self._run_sign_fallback(build_mode)
-                if fallback_result["success"]:
-                    output_path = Path(fallback_result["output_path"])
-                    result["stdout"] = f"{result.get('stdout', '')}\n{fallback_result.get('stdout', '')}".strip()
-                    result["stderr"] = f"{result.get('stderr', '')}\n{fallback_result.get('stderr', '')}".strip()
-                    artifact_source = fallback_result.get("artifact_source", "sign_fallback")
-                    sign_status = "signed"
-                elif fallback_result.get("error_code") != "SIGN_FALLBACK_SCRIPT_MISSING":
-                    return {
-                        "success": False,
-                        "error_code": fallback_result["error_code"],
-                        "stdout": f"{result.get('stdout', '')}\n{fallback_result.get('stdout', '')}".strip(),
-                        "stderr": (
-                            f"{result.get('stderr', '')}\n{fallback_result.get('stderr', '')}"
-                        ).strip(),
-                        "output_path": None,
-                    }
-            result["output_path"] = str(output_path) if output_path else None
-            result["artifact_source"] = artifact_source or None
-            result["sign_status"] = sign_status
-            logger.info(f"{target.upper()} build succeeded: {result['output_path']}")
-        else:
-            result["output_path"] = None
-            logger.error(f"{target.upper()} build failed: {result['stderr']}")
-        return result
 
     def _find_build_output(
         self,
