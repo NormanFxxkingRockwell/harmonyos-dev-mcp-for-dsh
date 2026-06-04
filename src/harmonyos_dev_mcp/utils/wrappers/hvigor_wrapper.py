@@ -1,13 +1,11 @@
 """Wrapper around the DevEco hvigor build toolchain."""
 
-import json
 import os
 import platform
 import re
 import shutil
 import subprocess
 import time
-import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -18,6 +16,21 @@ from harmonyos_dev_mcp.build.artifact_finder import (
     build_output_resolution_guidance,
     is_fresh_output,
     resolve_sign_status,
+)
+from harmonyos_dev_mcp.build.packaging_hnp import HnpPackager, hap_contains_hnp
+from harmonyos_dev_mcp.build.packaging_hsp import HspPackager, hap_contains_hsp, path_inside
+from harmonyos_dev_mcp.build.signing import (
+    SigningHelper,
+    extract_array_objects,
+    extract_compatible_version,
+    extract_named_array_object,
+    extract_object_value,
+    extract_scalar_value,
+    find_matching_token,
+    looks_like_deveco_encrypted_password,
+    merge_outputs,
+    resolve_module_root,
+    resolve_profile_relative_path,
 )
 from harmonyos_dev_mcp.build.toolchain_discovery import (
     ToolchainDiscovery,
@@ -53,6 +66,17 @@ class HvigorWrapper:
         self.sdk_root = self._find_sdk_root()
         self.java_home = self._find_java_home()
         self.hvigor_user_home = self._resolve_hvigor_user_home()
+        self.signing_helper = SigningHelper(
+            self.project_path,
+            self.sdk_root,
+            self.java_home,
+            build_env=self._build_command_env,
+            command_runner=subprocess.run,
+            system_name=platform.system(),
+            which=shutil.which,
+        )
+        self.hnp_packager = HnpPackager(self.project_path, self.signing_helper)
+        self.hsp_packager = HspPackager(self.project_path, self.signing_helper)
 
         if not self.node_exe.exists():
             raise ValueError(f"node executable not found: {self.node_exe}")
@@ -485,335 +509,73 @@ class HvigorWrapper:
 
     @staticmethod
     def _hap_contains_hnp(path: Path) -> bool:
-        try:
-            with zipfile.ZipFile(path) as archive:
-                return any(name.startswith("hnp/") and name.endswith(".hnp") for name in archive.namelist())
-        except (OSError, zipfile.BadZipFile):
-            return False
+        return hap_contains_hnp(path)
 
     @staticmethod
     def _hap_contains_hsp(path: Path) -> bool:
-        try:
-            with zipfile.ZipFile(path) as archive:
-                return any(name.startswith("shared_libs/") and name.endswith(".hsp") for name in archive.namelist())
-        except (OSError, zipfile.BadZipFile):
-            return False
+        return hap_contains_hsp(path)
 
     @staticmethod
     def _find_matching_token(text: str, start: int, open_token: str, close_token: str) -> Optional[int]:
-        depth = 0
-        quote: Optional[str] = None
-        escaped = False
-        for index in range(start, len(text)):
-            char = text[index]
-            if quote:
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char == quote:
-                    quote = None
-                continue
-            if char in {'"', "'"}:
-                quote = char
-                continue
-            if char == open_token:
-                depth += 1
-            elif char == close_token:
-                depth -= 1
-                if depth == 0:
-                    return index
-        return None
+        return find_matching_token(text, start, open_token, close_token)
 
     @classmethod
     def _extract_array_objects(cls, content: str, key: str) -> List[str]:
-        pattern = re.compile(rf'(?is)["\']?{re.escape(key)}["\']?\s*:\s*\[')
-        match = pattern.search(content)
-        if not match:
-            return []
-
-        array_start = content.find("[", match.start())
-        array_end = cls._find_matching_token(content, array_start, "[", "]")
-        if array_end is None:
-            return []
-
-        array_content = content[array_start + 1 : array_end]
-        objects: List[str] = []
-        search_from = 0
-        while True:
-            object_start = array_content.find("{", search_from)
-            if object_start < 0:
-                break
-            object_end = cls._find_matching_token(array_content, object_start, "{", "}")
-            if object_end is None:
-                break
-            objects.append(array_content[object_start : object_end + 1])
-            search_from = object_end + 1
-        return objects
+        return extract_array_objects(content, key)
 
     @staticmethod
     def _extract_scalar_value(content: str, key: str) -> Optional[str]:
-        pattern = re.compile(
-            rf'(?is)["\']?{re.escape(key)}["\']?\s*:\s*'
-            r'(?:"([^"]*)"|\'([^\']*)\'|([^,\n\r}]+))'
-        )
-        match = pattern.search(content)
-        if not match:
-            return None
-        value = next(group for group in match.groups() if group is not None)
-        return value.strip().rstrip(",")
+        return extract_scalar_value(content, key)
 
     @classmethod
     def _extract_object_value(cls, content: str, key: str) -> Optional[str]:
-        pattern = re.compile(rf'(?is)["\']?{re.escape(key)}["\']?\s*:\s*\{{')
-        match = pattern.search(content)
-        if not match:
-            return None
-        object_start = content.find("{", match.start())
-        object_end = cls._find_matching_token(content, object_start, "{", "}")
-        if object_end is None:
-            return None
-        return content[object_start : object_end + 1]
+        return extract_object_value(content, key)
 
     @classmethod
     def _extract_named_array_object(cls, content: str, array_key: str, name: str) -> Optional[str]:
-        for item in cls._extract_array_objects(content, array_key):
-            if cls._extract_scalar_value(item, "name") == name:
-                return item
-        return None
+        return extract_named_array_object(content, array_key, name)
 
     @staticmethod
     def _resolve_profile_relative_path(raw_value: str, profile_path: Path, project_path: Path) -> Path:
-        path_value = Path(raw_value).expanduser()
-        if path_value.is_absolute():
-            return path_value
-
-        candidates = [
-            (profile_path.parent / path_value).resolve(),
-            (project_path / path_value).resolve(),
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        return candidates[0]
+        return resolve_profile_relative_path(raw_value, profile_path, project_path)
 
     @staticmethod
     def _extract_compatible_version(product_object: str) -> str:
-        for key in ("compatibleSdkVersion", "targetSdkVersion"):
-            value = HvigorWrapper._extract_scalar_value(product_object, key)
-            if not value:
-                continue
-            parenthesized = re.search(r"\((\d+)\)", value)
-            if parenthesized:
-                return parenthesized.group(1)
-            numeric = re.search(r"\b(\d+)\b", value)
-            if numeric:
-                return numeric.group(1)
-        return "9"
+        return extract_compatible_version(product_object)
 
     def _resolve_repack_signing_config(self, product: str, error_prefix: str) -> Dict[str, Any]:
-        for profile_path in self._build_profile_paths():
-            try:
-                content = profile_path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-
-            product_object = self._extract_named_array_object(content, "products", product)
-            if product_object is None:
-                continue
-
-            signing_name = self._extract_scalar_value(product_object, "signingConfig")
-            if not signing_name:
-                return {
-                    "success": False,
-                    "error_code": f"{error_prefix}_SIGNING_CONFIG_MISSING",
-                    "stderr": f'product "{product}" does not declare signingConfig',
-                }
-
-            signing_object = self._extract_named_array_object(content, "signingConfigs", signing_name)
-            if signing_object is None:
-                return {
-                    "success": False,
-                    "error_code": f"{error_prefix}_SIGNING_CONFIG_MISSING",
-                    "stderr": f'signing config "{signing_name}" referenced by product "{product}" was not found',
-                }
-
-            material = self._extract_object_value(signing_object, "material") or signing_object
-            scalar_keys = ["keyAlias", "keyPassword", "storePassword", "certpath", "profile", "storeFile"]
-            values = {key: self._extract_scalar_value(material, key) for key in scalar_keys}
-            missing = [key for key, value in values.items() if value is None]
-            if missing:
-                return {
-                    "success": False,
-                    "error_code": f"{error_prefix}_SIGNING_CONFIG_INCOMPLETE",
-                    "stderr": "signing material is missing required keys: " + ", ".join(missing),
-                }
-
-            path_keys = {
-                "certpath": "app_cert_file",
-                "profile": "profile_file",
-                "storeFile": "keystore_file",
-            }
-            resolved_paths = {
-                output_key: self._resolve_profile_relative_path(values[input_key], profile_path, self.project_path)
-                for input_key, output_key in path_keys.items()
-            }
-            missing_paths = [str(path) for path in resolved_paths.values() if not path.exists()]
-            if missing_paths:
-                return {
-                    "success": False,
-                    "error_code": f"{error_prefix}_SIGNING_FILE_NOT_FOUND",
-                    "stderr": "signing files were not found: " + ", ".join(missing_paths),
-                }
-
-            return {
-                "success": True,
-                "key_alias": values["keyAlias"],
-                "key_password": values["keyPassword"],
-                "keystore_password": values["storePassword"],
-                "sign_alg": self._extract_scalar_value(material, "signAlg") or "SHA256withECDSA",
-                "compatible_version": self._extract_compatible_version(product_object),
-                **resolved_paths,
-            }
-
-        return {
-            "success": False,
-            "error_code": f"{error_prefix}_SIGNING_CONFIG_MISSING",
-            "stderr": f'product "{product}" was not found in build-profile.json5',
-        }
+        return self.signing_helper.resolve_repack_signing_config(
+            self._build_profile_paths(),
+            product,
+            error_prefix,
+        )
 
     def _resolve_module_root(self, module_name: Optional[str]) -> Path:
-        module = module_name or "entry"
-        candidates = [
-            self.project_path / module,
-            self.project_path / "harmony" / "app" / module,
-            self.project_path / "app" / module,
-        ]
-        for profile_path in self._build_profile_paths():
-            try:
-                content = profile_path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            for module_object in self._extract_array_objects(content, "modules"):
-                name = self._extract_scalar_value(module_object, "name")
-                if name != module:
-                    continue
-                src_path = self._extract_scalar_value(module_object, "srcPath")
-                if src_path:
-                    candidates.insert(0, (profile_path.parent / src_path).resolve())
-
-        for candidate in candidates:
-            if (candidate / "src" / "main" / "module.json5").exists() or (candidate / "build").exists():
-                return candidate.resolve()
-        return candidates[0].resolve()
+        return resolve_module_root(self.project_path, self._build_profile_paths(), module_name)
 
     @staticmethod
     def _contains_hnp_package(path: Path) -> bool:
-        if not path.exists():
-            return False
-        ignored_parts = {".git", ".hvigor", "build", "node_modules", "oh_modules"}
-        for hnp in path.rglob("*.hnp"):
-            if ignored_parts & {part.lower() for part in hnp.parts}:
-                continue
-            return True
-        return False
+        return HnpPackager.contains_hnp_package(path)
 
     @staticmethod
     def _hnp_root_for_package(package_path: Path) -> Path:
-        abi_names = {"arm64-v8a", "armeabi-v7a", "x86_64", "x86"}
-        if package_path.parent.name in abi_names:
-            return package_path.parent.parent
-        return package_path.parent
+        return HnpPackager.hnp_root_for_package(package_path)
 
     def _find_hnp_source_root(self, module_root: Path) -> Optional[Path]:
-        candidates = [
-            module_root / "hnp",
-            module_root / "src" / "main" / "hnp",
-            self.project_path / "hnp",
-        ]
-        for candidate in candidates:
-            if self._contains_hnp_package(candidate):
-                return candidate.resolve()
-
-        ignored_parts = {".git", ".hvigor", "build", "node_modules", "oh_modules"}
-        search_roots = [module_root, self.project_path]
-        for root in search_roots:
-            if not root.exists():
-                continue
-            for package_path in root.rglob("*.hnp"):
-                if ignored_parts & {part.lower() for part in package_path.parts}:
-                    continue
-                return self._hnp_root_for_package(package_path).resolve()
-        return None
+        return self.hnp_packager.find_source_root(module_root)
 
     def _discover_shared_modules(self) -> List[str]:
-        modules: List[str] = []
-        for profile_path in self._build_profile_paths():
-            try:
-                content = profile_path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            for module_object in self._extract_array_objects(content, "modules"):
-                name = self._extract_scalar_value(module_object, "name")
-                src_path = self._extract_scalar_value(module_object, "srcPath")
-                if not name or not src_path:
-                    continue
-                module_json = profile_path.parent / src_path / "src" / "main" / "module.json5"
-                if not module_json.exists():
-                    continue
-                try:
-                    module_content = module_json.read_text(encoding="utf-8", errors="ignore")
-                except OSError:
-                    continue
-                if re.search(r'(?is)["\']?type["\']?\s*:\s*["\']shared["\']', module_content):
-                    modules.append(name)
-
-        if not modules:
-            for module_json in self.project_path.glob("*/src/main/module.json5"):
-                try:
-                    module_content = module_json.read_text(encoding="utf-8", errors="ignore")
-                except OSError:
-                    continue
-                if re.search(r'(?is)["\']?type["\']?\s*:\s*["\']shared["\']', module_content):
-                    modules.append(module_json.parents[2].name)
-
-        return sorted(set(modules))
+        return self.hsp_packager.discover_shared_modules(self._build_profile_paths())
 
     @staticmethod
     def _path_inside(path: Path, root: Path) -> bool:
-        try:
-            path.resolve().relative_to(root.resolve())
-            return True
-        except ValueError:
-            return False
+        return path_inside(path, root)
 
     def _stage_hnp_source(self, source_root: Path, outputs_root: Path, module_root: Path) -> Path:
-        staging_root = (outputs_root / "native").resolve()
-        if not self._path_inside(staging_root, module_root):
-            raise ValueError(f"refusing to stage HNP packages outside module root: {staging_root}")
-
-        if staging_root.exists():
-            shutil.rmtree(staging_root)
-        staging_root.mkdir(parents=True, exist_ok=True)
-        for child in source_root.iterdir():
-            destination = staging_root / child.name
-            if child.is_dir():
-                shutil.copytree(child, destination)
-            else:
-                shutil.copy2(child, destination)
-        return staging_root
+        return self.hnp_packager.stage_source(source_root, outputs_root, module_root)
 
     def _stage_hsp_outputs(self, hsp_paths: List[Path], outputs_root: Path, module_root: Path) -> Path:
-        staging_root = (outputs_root / "shared_libs").resolve()
-        if not self._path_inside(staging_root, module_root):
-            raise ValueError(f"refusing to stage HSP packages outside module root: {staging_root}")
-
-        if staging_root.exists():
-            shutil.rmtree(staging_root)
-        staging_root.mkdir(parents=True, exist_ok=True)
-        for hsp_path in hsp_paths:
-            shutil.copy2(hsp_path, staging_root / hsp_path.name)
-        return staging_root
+        return self.hsp_packager.stage_outputs(hsp_paths, outputs_root, module_root)
 
     def _merge_hsp_pack_info(
         self,
@@ -822,173 +584,32 @@ class HvigorWrapper:
         outputs_root: Path,
         module_root: Path,
     ) -> Dict[str, Any]:
-        merged_pack_info = (outputs_root / "hsp_pack_info" / "pack.info").resolve()
-        if not self._path_inside(merged_pack_info, module_root):
-            return {
-                "success": False,
-                "error_code": "HSP_PACK_INFO_ERROR",
-                "stderr": f"refusing to write merged pack.info outside module root: {merged_pack_info}",
-            }
-
-        try:
-            merged = json.loads(base_pack_info.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            return {
-                "success": False,
-                "error_code": "HSP_PACK_INFO_ERROR",
-                "stderr": f"failed to read base pack.info: {exc}",
-            }
-
-        summary = merged.setdefault("summary", {})
-        merged_modules = summary.setdefault("modules", [])
-        merged_packages = merged.setdefault("packages", [])
-        module_names = {
-            module.get("distro", {}).get("moduleName")
-            for module in merged_modules
-            if isinstance(module, dict)
-        }
-        package_names = {
-            package.get("name")
-            for package in merged_packages
-            if isinstance(package, dict)
-        }
-
-        for hsp_path in hsp_paths:
-            try:
-                with zipfile.ZipFile(hsp_path) as archive:
-                    hsp_pack = json.loads(archive.read("pack.info").decode("utf-8"))
-            except (OSError, KeyError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
-                return {
-                    "success": False,
-                    "error_code": "HSP_PACK_INFO_ERROR",
-                    "stderr": f"failed to read pack.info from HSP {hsp_path}: {exc}",
-                }
-
-            for module in hsp_pack.get("summary", {}).get("modules", []):
-                module_name = module.get("distro", {}).get("moduleName") if isinstance(module, dict) else None
-                if module_name and module_name not in module_names:
-                    merged_modules.append(module)
-                    module_names.add(module_name)
-            for package in hsp_pack.get("packages", []):
-                package_name = package.get("name") if isinstance(package, dict) else None
-                if package_name and package_name not in package_names:
-                    merged_packages.append(package)
-                    package_names.add(package_name)
-
-        try:
-            merged_pack_info.parent.mkdir(parents=True, exist_ok=True)
-            merged_pack_info.write_text(
-                json.dumps(merged, ensure_ascii=False, separators=(",", ":")),
-                encoding="utf-8",
-            )
-        except OSError as exc:
-            return {
-                "success": False,
-                "error_code": "HSP_PACK_INFO_ERROR",
-                "stderr": f"failed to write merged pack.info: {exc}",
-            }
-
-        return {"success": True, "pack_info": merged_pack_info}
+        return self.hsp_packager.merge_pack_info(
+            base_pack_info,
+            hsp_paths,
+            outputs_root,
+            module_root,
+        )
 
     def _find_toolchain_jar(self, jar_name: str) -> Optional[Path]:
-        candidates = [
-            self.sdk_root / "default" / "openharmony" / "toolchains" / "lib" / jar_name,
-            self.sdk_root / "openharmony" / "toolchains" / "lib" / jar_name,
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
-        for candidate in self.sdk_root.rglob(jar_name):
-            if candidate.is_file():
-                return candidate
-        return None
+        return self.signing_helper.find_toolchain_jar(jar_name)
 
     def _java_command(self) -> str:
-        java_name = "java.exe" if platform.system() == "Windows" else "java"
-        if self.java_home:
-            candidate = self.java_home / "bin" / java_name
-            if candidate.exists():
-                return str(candidate)
-        resolved = shutil.which(java_name) or shutil.which("java")
-        return resolved or java_name
+        return self.signing_helper.java_command()
 
     def _run_packaging_command(self, cmd: List[str], error_prefix: str) -> Dict[str, Any]:
-        try:
-            result = subprocess.run(
-                cmd,
-                cwd=str(self.project_path),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                stdin=subprocess.DEVNULL,
-                timeout=Config.BUILD_TIMEOUT,
-                env=self._build_command_env(),
-                close_fds=True,
-            )
-        except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "error_code": f"{error_prefix}_TIMEOUT",
-                "stdout": "",
-                "stderr": f"{error_prefix} command timed out after {Config.BUILD_TIMEOUT}s",
-            }
-        except Exception as exc:
-            return {
-                "success": False,
-                "error_code": f"{error_prefix}_ERROR",
-                "stdout": "",
-                "stderr": str(exc),
-            }
-
-        return {
-            "success": result.returncode == 0,
-            "error_code": None if result.returncode == 0 else f"{error_prefix}_FAILED",
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-        }
+        return self.signing_helper.run_packaging_command(cmd, error_prefix)
 
     @staticmethod
     def _merge_outputs(*parts: Optional[str]) -> str:
-        return "\n".join(part.strip() for part in parts if part and part.strip())
+        return merge_outputs(*parts)
 
     @staticmethod
     def _looks_like_deveco_encrypted_password(value: str) -> bool:
-        return len(value) >= 32 and re.fullmatch(r"[0-9A-Fa-f]+", value) is not None
+        return looks_like_deveco_encrypted_password(value)
 
-    @staticmethod
-    def _password_candidates(signing: Dict[str, Any]) -> List[tuple[str, str]]:
-        candidates: List[tuple[str, str]] = []
-
-        def add(key_password: Optional[str], store_password: Optional[str]) -> None:
-            if key_password is None or store_password is None:
-                return
-            pair = (key_password, store_password)
-            if pair not in candidates:
-                candidates.append(pair)
-
-        add(signing["key_password"], signing["keystore_password"])
-
-        env_key_password = os.getenv("HAP_KEY_PASSWORD")
-        env_store_password = os.getenv("HAP_STORE_PASSWORD")
-        if env_key_password or env_store_password:
-            add(
-                env_key_password or signing["key_password"],
-                env_store_password or signing["keystore_password"],
-            )
-
-        shared_password = os.getenv("HAP_SIGN_PASSWORD")
-        if shared_password:
-            add(shared_password, shared_password)
-
-        if (
-            HvigorWrapper._looks_like_deveco_encrypted_password(signing["key_password"])
-            or HvigorWrapper._looks_like_deveco_encrypted_password(signing["keystore_password"])
-        ):
-            add("123456", "123456")
-
-        return candidates
+    def _password_candidates(self, signing: Dict[str, Any]) -> List[tuple[str, str]]:
+        return self.signing_helper.password_candidates(signing)
 
     def _build_hnp_sign_command(
         self,
@@ -1000,36 +621,15 @@ class HvigorWrapper:
         key_password: str,
         keystore_password: str,
     ) -> List[str]:
-        return [
+        return self.signing_helper.build_hap_sign_command(
             java,
-            "-jar",
-            str(hap_sign_tool),
-            "sign-app",
-            "-mode",
-            "localSign",
-            "-keyAlias",
-            signing["key_alias"],
-            "-keyPwd",
+            hap_sign_tool,
+            unsigned_hnp,
+            signed_hnp,
+            signing,
             key_password,
-            "-appCertFile",
-            str(signing["app_cert_file"]),
-            "-profileFile",
-            str(signing["profile_file"]),
-            "-inFile",
-            str(unsigned_hnp),
-            "-signAlg",
-            signing["sign_alg"],
-            "-keystoreFile",
-            str(signing["keystore_file"]),
-            "-keystorePwd",
             keystore_password,
-            "-outFile",
-            str(signed_hnp),
-            "-compatibleVersion",
-            signing["compatible_version"],
-            "-signCode",
-            "1",
-        ]
+        )
 
     def _run_base_hap_build_for_repack(
         self,
@@ -1076,146 +676,12 @@ class HvigorWrapper:
         product: str,
         signing: Dict[str, Any],
     ) -> Dict[str, Any]:
-        app_packing_tool = self._find_toolchain_jar("app_packing_tool.jar")
-        hap_sign_tool = self._find_toolchain_jar("hap-sign-tool.jar")
-        if app_packing_tool is None or hap_sign_tool is None:
-            missing = []
-            if app_packing_tool is None:
-                missing.append("app_packing_tool.jar")
-            if hap_sign_tool is None:
-                missing.append("hap-sign-tool.jar")
-            return {
-                "success": False,
-                "error_code": "HNP_TOOLCHAIN_NOT_FOUND",
-                "stdout": "",
-                "stderr": "required SDK toolchain jars were not found: " + ", ".join(missing),
-                "output_path": None,
-            }
-
-        build_root = module_root / "build" / product
-        intermediates = build_root / "intermediates"
-        outputs = build_root / "outputs" / product
-        packaging_inputs = {
-            "json": intermediates / "package" / product / "module.json",
-            "resources": intermediates / "res" / product / "resources",
-            "ets": intermediates / "loader_out" / product / "ets",
-            "index": intermediates / "res" / product / "resources.index",
-            "pack_info": outputs / "pack.info",
-            "pkg_context": intermediates / "loader" / product / "pkgContextInfo.json",
-        }
-        missing_inputs = [str(path) for path in packaging_inputs.values() if not path.exists()]
-        if missing_inputs:
-            return {
-                "success": False,
-                "error_code": "HNP_PACKAGING_INPUT_MISSING",
-                "stdout": "",
-                "stderr": "HNP packaging inputs were not found: " + ", ".join(missing_inputs),
-                "output_path": None,
-            }
-
-        outputs.mkdir(parents=True, exist_ok=True)
-        hnp_staging_root = self._stage_hnp_source(hnp_source_root, outputs, module_root)
-        module = module_root.name
-        unsigned_hnp = outputs / f"{module}-{product}-unsigned-hnp.hap"
-        signed_hnp = outputs / f"{module}-{product}-signed-hnp.hap"
-        lib_path = intermediates / "libs" / product
-        java = self._java_command()
-
-        pack_cmd = [
-            java,
-            "-jar",
-            str(app_packing_tool),
-            "--mode",
-            "hap",
-            "--json-path",
-            str(packaging_inputs["json"]),
-            "--resources-path",
-            str(packaging_inputs["resources"]),
-            "--ets-path",
-            str(packaging_inputs["ets"]),
-            "--out-path",
-            str(unsigned_hnp),
-            "--hnp-path",
-            str(hnp_staging_root),
-            "--index-path",
-            str(packaging_inputs["index"]),
-            "--pack-info-path",
-            str(packaging_inputs["pack_info"]),
-            "--pkg-context-path",
-            str(packaging_inputs["pkg_context"]),
-            "--force",
-            "true",
-        ]
-        if lib_path.exists():
-            pack_cmd.extend(["--lib-path", str(lib_path)])
-
-        logger.info(f"repacking HAP with HNP packages from {hnp_source_root}")
-        pack_result = self._run_packaging_command(pack_cmd, "HNP_REPACK")
-        if not pack_result["success"] or not unsigned_hnp.exists():
-            return {
-                **pack_result,
-                "output_path": None,
-                "error_code": pack_result.get("error_code") or "HNP_REPACK_FAILED",
-            }
-
-        logger.info(f"signing HAP with HNP packages: {signed_hnp}")
-        sign_failures: List[Dict[str, Any]] = []
-        successful_sign_result: Optional[Dict[str, Any]] = None
-        for key_password, keystore_password in self._password_candidates(signing):
-            signed_hnp.unlink(missing_ok=True)
-            sign_cmd = self._build_hnp_sign_command(
-                java,
-                hap_sign_tool,
-                unsigned_hnp,
-                signed_hnp,
-                signing,
-                key_password,
-                keystore_password,
-            )
-            sign_result = self._run_packaging_command(sign_cmd, "HNP_SIGN")
-            if sign_result["success"] and signed_hnp.exists():
-                successful_sign_result = sign_result
-                break
-            sign_failures.append(sign_result)
-
-        if successful_sign_result is None:
-            combined_stdout = self._merge_outputs(
-                pack_result.get("stdout"),
-                *(failure.get("stdout") for failure in sign_failures),
-            )
-            combined_stderr = self._merge_outputs(
-                pack_result.get("stderr"),
-                *(failure.get("stderr") for failure in sign_failures),
-            )
-            last_failure = sign_failures[-1] if sign_failures else {}
-            return {
-                "success": False,
-                "error_code": last_failure.get("error_code") or "HNP_SIGN_FAILED",
-                "stdout": combined_stdout,
-                "stderr": combined_stderr,
-                "output_path": None,
-            }
-
-        combined_stdout = self._merge_outputs(pack_result.get("stdout"), successful_sign_result.get("stdout"))
-        combined_stderr = self._merge_outputs(pack_result.get("stderr"), successful_sign_result.get("stderr"))
-        if not self._hap_contains_hnp(signed_hnp):
-            return {
-                "success": False,
-                "error_code": "HNP_NOT_IN_HAP",
-                "stdout": combined_stdout,
-                "stderr": f"signed HAP does not contain hnp/*.hnp: {signed_hnp}",
-                "output_path": None,
-            }
-
-        return {
-            "success": True,
-            "error_code": None,
-            "stdout": combined_stdout,
-            "stderr": combined_stderr,
-            "output_path": str(signed_hnp),
-            "artifact_source": "hnp_direct",
-            "sign_status": "signed",
-        }
+        return self.hnp_packager.repack_and_sign(
+            module_root,
+            hnp_source_root,
+            product,
+            signing,
+        )
 
     def _build_hnp(
         self,
@@ -1357,15 +823,7 @@ class HvigorWrapper:
 
     @staticmethod
     def _resolve_hsp_module_names(hsp_module_names: Optional[List[str]]) -> List[str]:
-        modules: List[str] = []
-
-        for raw_value in hsp_module_names or []:
-            if not raw_value:
-                continue
-            module = raw_value.strip()
-            if module and module not in modules:
-                modules.append(module)
-        return modules
+        return HspPackager.resolve_module_names(hsp_module_names)
 
     def _repack_and_sign_hap_with_hsp(
         self,
@@ -1374,166 +832,12 @@ class HvigorWrapper:
         product: str,
         signing: Dict[str, Any],
     ) -> Dict[str, Any]:
-        app_packing_tool = self._find_toolchain_jar("app_packing_tool.jar")
-        hap_sign_tool = self._find_toolchain_jar("hap-sign-tool.jar")
-        if app_packing_tool is None or hap_sign_tool is None:
-            missing = []
-            if app_packing_tool is None:
-                missing.append("app_packing_tool.jar")
-            if hap_sign_tool is None:
-                missing.append("hap-sign-tool.jar")
-            return {
-                "success": False,
-                "error_code": "HSP_TOOLCHAIN_NOT_FOUND",
-                "stdout": "",
-                "stderr": "required SDK toolchain jars were not found: " + ", ".join(missing),
-                "output_path": None,
-            }
-
-        build_root = module_root / "build" / product
-        intermediates = build_root / "intermediates"
-        outputs = build_root / "outputs" / product
-        packaging_inputs = {
-            "json": intermediates / "package" / product / "module.json",
-            "resources": intermediates / "res" / product / "resources",
-            "ets": intermediates / "loader_out" / product / "ets",
-            "index": intermediates / "res" / product / "resources.index",
-            "pack_info": outputs / "pack.info",
-            "pkg_context": intermediates / "loader" / product / "pkgContextInfo.json",
-        }
-        missing_inputs = [str(path) for path in packaging_inputs.values() if not path.exists()]
-        if missing_inputs:
-            return {
-                "success": False,
-                "error_code": "HSP_PACKAGING_INPUT_MISSING",
-                "stdout": "",
-                "stderr": "HSP packaging inputs were not found: " + ", ".join(missing_inputs),
-                "output_path": None,
-            }
-
-        outputs.mkdir(parents=True, exist_ok=True)
-        shared_libs_root = self._stage_hsp_outputs(hsp_paths, outputs, module_root)
-        merged_pack_info = self._merge_hsp_pack_info(
-            packaging_inputs["pack_info"],
-            hsp_paths,
-            outputs,
+        return self.hsp_packager.repack_and_sign(
             module_root,
+            hsp_paths,
+            product,
+            signing,
         )
-        if not merged_pack_info.get("success"):
-            return {
-                "success": False,
-                "error_code": merged_pack_info["error_code"],
-                "stdout": "",
-                "stderr": merged_pack_info["stderr"],
-                "output_path": None,
-            }
-        module = module_root.name
-        unsigned_hap = outputs / f"{module}-{product}-unsigned-hsp.hap"
-        signed_hap = outputs / f"{module}-{product}-signed-hsp.hap"
-        lib_path = intermediates / "libs" / product
-        java = self._java_command()
-
-        pack_cmd = [
-            java,
-            "-jar",
-            str(app_packing_tool),
-            "--mode",
-            "hap",
-            "--json-path",
-            str(packaging_inputs["json"]),
-            "--resources-path",
-            str(packaging_inputs["resources"]),
-            "--ets-path",
-            str(packaging_inputs["ets"]),
-            "--out-path",
-            str(unsigned_hap),
-            "--shared-libs-path",
-            str(shared_libs_root),
-            "--index-path",
-            str(packaging_inputs["index"]),
-            "--pack-info-path",
-            str(merged_pack_info["pack_info"]),
-            "--pkg-context-path",
-            str(packaging_inputs["pkg_context"]),
-            "--force",
-            "true",
-        ]
-        if lib_path.exists():
-            pack_cmd.extend(["--lib-path", str(lib_path)])
-
-        logger.info(f"repacking HAP with HSP packages from {shared_libs_root}")
-        pack_result = self._run_packaging_command(pack_cmd, "HSP_REPACK")
-        if not pack_result["success"] or not unsigned_hap.exists():
-            return {
-                **pack_result,
-                "output_path": None,
-                "error_code": pack_result.get("error_code") or "HSP_REPACK_FAILED",
-            }
-
-        logger.info(f"signing HAP with HSP packages: {signed_hap}")
-        sign_failures: List[Dict[str, Any]] = []
-        successful_sign_result: Optional[Dict[str, Any]] = None
-        for key_password, keystore_password in self._password_candidates(signing):
-            signed_hap.unlink(missing_ok=True)
-            sign_cmd = self._build_hnp_sign_command(
-                java,
-                hap_sign_tool,
-                unsigned_hap,
-                signed_hap,
-                signing,
-                key_password,
-                keystore_password,
-            )
-            sign_result = self._run_packaging_command(sign_cmd, "HSP_SIGN")
-            if sign_result["success"] and signed_hap.exists():
-                successful_sign_result = sign_result
-                break
-            sign_failures.append(sign_result)
-
-        if successful_sign_result is None:
-            combined_stdout = self._merge_outputs(
-                pack_result.get("stdout"),
-                *(failure.get("stdout") for failure in sign_failures),
-            )
-            combined_stderr = self._merge_outputs(
-                pack_result.get("stderr"),
-                *(failure.get("stderr") for failure in sign_failures),
-            )
-            last_failure = sign_failures[-1] if sign_failures else {}
-            return {
-                "success": False,
-                "error_code": last_failure.get("error_code") or "HSP_SIGN_FAILED",
-                "stdout": combined_stdout,
-                "stderr": combined_stderr,
-                "output_path": None,
-            }
-
-        combined_stdout = self._merge_outputs(
-            pack_result.get("stdout"),
-            successful_sign_result.get("stdout"),
-        )
-        combined_stderr = self._merge_outputs(
-            pack_result.get("stderr"),
-            successful_sign_result.get("stderr"),
-        )
-        if not self._hap_contains_hsp(signed_hap):
-            return {
-                "success": False,
-                "error_code": "HSP_NOT_IN_HAP",
-                "stdout": combined_stdout,
-                "stderr": f"signed HAP does not contain shared_libs/*.hsp: {signed_hap}",
-                "output_path": None,
-            }
-
-        return {
-            "success": True,
-            "error_code": None,
-            "stdout": combined_stdout,
-            "stderr": combined_stderr,
-            "output_path": str(signed_hap),
-            "artifact_source": "hsp_direct",
-            "sign_status": "signed",
-        }
 
     def _build_hap_with_hsp(
         self,
