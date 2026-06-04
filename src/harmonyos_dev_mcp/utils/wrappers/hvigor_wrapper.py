@@ -6,9 +6,7 @@ import platform
 import re
 import shutil
 import subprocess
-import tempfile
 import time
-import uuid
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -20,6 +18,11 @@ from harmonyos_dev_mcp.build.artifact_finder import (
     build_output_resolution_guidance,
     is_fresh_output,
     resolve_sign_status,
+)
+from harmonyos_dev_mcp.build.toolchain_discovery import (
+    ToolchainDiscovery,
+    has_java_executable,
+    is_writable_dir,
 )
 from harmonyos_dev_mcp.config import Config
 
@@ -33,6 +36,12 @@ class HvigorWrapper:
             raise ValueError(f"project path does not exist: {project_path}")
 
         self.artifact_finder = BuildArtifactFinder(self.project_path)
+        self.toolchain_discovery = ToolchainDiscovery(
+            self.project_path,
+            system_name=platform.system(),
+            which=shutil.which,
+            writable_dir=self._is_writable_dir,
+        )
         self.deveco_path = self._find_deveco_studio(deveco_path)
         if not self.deveco_path:
             raise ValueError(
@@ -66,148 +75,29 @@ class HvigorWrapper:
 
     @staticmethod
     def _is_writable_dir(path: Path) -> bool:
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-            probe = path / ".write_probe"
-            with open(probe, "w", encoding="utf-8") as handle:
-                handle.write("ok")
-            probe.unlink(missing_ok=True)
-            return True
-        except Exception:
-            return False
+        return is_writable_dir(path)
 
     def _resolve_hvigor_user_home(self) -> Path:
-        """
-        Pick an isolated writable HVIGOR_USER_HOME for this wrapper instance.
-
-        Sharing one `.hvigor` directory across concurrent builds can trigger
-        Windows `EBUSY` failures while hvigor updates `dependencyMap`.
-        """
-        suffix = uuid.uuid4().hex[:8]
-        preferred = self.project_path / ".hvigor" / f"mcp-user-home-{suffix}"
-        if self._is_writable_dir(preferred):
-            return preferred
-
-        fallback = Path(tempfile.gettempdir()) / "harmonyos_dev_mcp" / "hvigor_home" / suffix
-        if self._is_writable_dir(fallback):
-            logger.warning(
-                f"project-local HVIGOR_USER_HOME is not writable, falling back to {fallback}"
-            )
-            return fallback
-
-        raise PermissionError(
-            "HVIGOR_USER_HOME is not writable in either the project or temp directory: "
-            f"{preferred}, {fallback}"
-        )
+        return self.toolchain_discovery.resolve_hvigor_user_home()
 
     def _find_deveco_studio(self, custom_path: Optional[str] = None) -> Optional[Path]:
-        if custom_path:
-            path = Path(custom_path)
-            if Config._is_valid_deveco_path(path):
-                return path
-
-        if Config.DEVECO_STUDIO_PATH:
-            path = Path(Config.DEVECO_STUDIO_PATH)
-            if Config._is_valid_deveco_path(path):
-                return path
-
-        detected = Config._detect_deveco_studio_path()
-        if detected:
-            path = Path(detected)
-            logger.info(f"auto-detected DevEco Studio: {path}")
-            return path
-
-        return None
+        return self.toolchain_discovery.find_deveco_studio(custom_path)
 
     def _find_node_executable(self) -> Path:
-        if Config.NODE_PATH and Path(Config.NODE_PATH).exists():
-            return Path(Config.NODE_PATH)
-
-        node_names = ["node", "node.exe"]
-        if platform.system() == "Windows":
-            node_names = ["node.exe", "node"]
-
-        candidates = [
-            self.deveco_path / "tools" / "node",
-            self.deveco_path / "tools" / "node" / "bin",
-            self.deveco_path / "Contents" / "tools" / "node",
-            self.deveco_path / "Contents" / "tools" / "node" / "bin",
-        ]
-        for base in candidates:
-            for node_name in node_names:
-                candidate = base / node_name
-                if candidate.exists():
-                    return candidate
-        return candidates[0] / node_names[0]
+        return self.toolchain_discovery.find_node_executable(self.deveco_path)
 
     def _find_hvigor_wrapper(self) -> Path:
-        if Config.HVIGOR_PATH and Path(Config.HVIGOR_PATH).exists():
-            return Path(Config.HVIGOR_PATH)
-
-        candidates = [
-            self.deveco_path / "tools" / "hvigor" / "bin" / "hvigorw.js",
-            self.deveco_path / "Contents" / "tools" / "hvigor" / "bin" / "hvigorw.js",
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        return candidates[0]
+        return self.toolchain_discovery.find_hvigor_wrapper(self.deveco_path)
 
     def _find_sdk_root(self) -> Path:
-        candidates = [
-            self.deveco_path / "sdk",
-            self.deveco_path / "Contents" / "sdk",
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        return candidates[0]
+        return self.toolchain_discovery.find_sdk_root(self.deveco_path)
 
     @staticmethod
     def _has_java_executable(candidate: Path, java_names: List[str]) -> bool:
-        return any((candidate / "bin" / java_exe).exists() for java_exe in java_names)
+        return has_java_executable(candidate, java_names)
 
     def _find_java_home(self) -> Optional[Path]:
-        java_names = ["java", "java.exe"]
-        if platform.system() == "Windows":
-            java_names = ["java.exe", "java"]
-
-        for env_name in ("JAVA_HOME", "JDK_HOME"):
-            env_java_home = os.getenv(env_name)
-            if not env_java_home:
-                continue
-            candidate = Path(env_java_home).expanduser()
-            if self._has_java_executable(candidate, java_names):
-                return candidate
-
-        java_in_path = shutil.which("java")
-        if java_in_path:
-            java_path = Path(java_in_path).resolve()
-            java_home = java_path.parent.parent
-            if self._has_java_executable(java_home, java_names):
-                return java_home
-
-        home = Path.home()
-        local_app_data = Path(os.getenv("LOCALAPPDATA", home / "AppData" / "Local"))
-        program_files = Path(os.getenv("ProgramFiles", r"C:\Program Files"))
-        program_files_x86 = Path(os.getenv("ProgramFiles(x86)", r"C:\Program Files (x86)"))
-
-        candidates = [
-            self.deveco_path / "jbr",
-            self.deveco_path / "jbr" / "Contents" / "Home",
-            self.deveco_path / "Contents" / "jbr",
-            self.deveco_path / "Contents" / "jbr" / "Contents" / "Home",
-            local_app_data / "Programs" / "DevEco Studio" / "jbr",
-            local_app_data / "Programs" / "Huawei" / "DevEco Studio" / "jbr",
-            program_files / "DevEco Studio" / "jbr",
-            program_files / "Huawei" / "DevEco Studio" / "jbr",
-            program_files_x86 / "DevEco Studio" / "jbr",
-            program_files_x86 / "Huawei" / "DevEco Studio" / "jbr",
-        ]
-        for candidate in candidates:
-            if self._has_java_executable(candidate, java_names):
-                return candidate
-        return None
+        return self.toolchain_discovery.find_java_home(self.deveco_path)
 
     def _build_command_env(self, include_hvigor_home: bool = False) -> Dict[str, str]:
         env = os.environ.copy()
