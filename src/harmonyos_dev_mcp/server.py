@@ -1,40 +1,13 @@
 """HarmonyOS MCP server entry point."""
 
-from loguru import logger
-
-from harmonyos_dev_mcp._common.utils.logger import setup_logger
-from harmonyos_dev_mcp._common.server.base import create_server, run_server
-
-from .config import Config
-from .tools import build, e2e, general, ui  # noqa: F401
-from .tools.log.query import logs_query  # noqa: F401
+from .runtime.server_factory import create_app, run_app
 
 
-def _setup_logger() -> None:
-    setup_logger(app_name="harmonyos_dev_mcp", log_level=Config.LOG_LEVEL)
-
-
-def _on_startup() -> None:
-    from .container import get_hdc
-
-    try:
-        hdc = get_hdc()
-        devices = hdc.list_devices()
-        logger.info(f"Detected {len(devices)} device(s)")
-    except Exception as exc:
-        logger.warning(f"Device detection failed: {exc}")
-
-
-mcp = create_server("harmonyos-tools")
+mcp = create_app()
 
 
 def main() -> None:
-    run_server(
-        mcp,
-        config_class=Config,
-        setup_logger_func=_setup_logger,
-        on_startup=_on_startup,
-    )
+    run_app(create_app())
 
 
 if __name__ == "__main__":
