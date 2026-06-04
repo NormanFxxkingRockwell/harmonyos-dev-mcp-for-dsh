@@ -5,6 +5,7 @@ from fastmcp import Client
 
 from harmonyos_dev_mcp._common.server.base import run_server
 from harmonyos_dev_mcp.runtime.server_factory import create_app, run_app
+from harmonyos_dev_mcp.runtime.tool_registration import get_tool_specs, summarize_tool_specs
 
 
 def test_run_server_disables_banner_by_default():
@@ -32,6 +33,36 @@ def test_create_app_returns_isolated_servers_with_same_tools():
     second_tools = tuple(func.__name__ for func in second.codex_registered_tools)
     assert len(first_tools) == 18
     assert first_tools == second_tools
+
+
+def test_explicit_tool_specs_match_public_tool_surface():
+    specs = get_tool_specs()
+    names = [spec.func.__name__ for spec in specs]
+
+    assert names == [
+        "build_app",
+        "install_app",
+        "run_app",
+        "uninstall_app",
+        "get_ui_tree",
+        "list_windows",
+        "wait_element",
+        "list_devices",
+        "query_package",
+        "click_element",
+        "long_press_element",
+        "swipe",
+        "input_text",
+        "press_key",
+        "find_element",
+        "screenshot",
+        "drag",
+        "logs_query",
+    ]
+    assert summarize_tool_specs(specs) == {
+        "total": 18,
+        "categories": {"build": 4, "e2e": 3, "general": 3, "ui": 8},
+    }
 
 
 def test_run_app_uses_provided_server(monkeypatch):
