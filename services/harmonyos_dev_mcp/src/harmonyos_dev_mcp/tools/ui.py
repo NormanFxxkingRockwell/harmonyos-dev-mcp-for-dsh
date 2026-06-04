@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple, Union
 
-from common.tools.registry import mcp_tool
+from harmonyos_dev_mcp._common.tools.registry import mcp_tool
 
 from ..container import get_hdc, get_ui_operations
 from ..types import (
@@ -20,7 +20,7 @@ from ..types import (
 )
 from ..utils.normalizers.element import attach_element_metadata, build_lookup_hint, compact_candidate_handles
 from .device_support import DeviceToolSupport
-from common.tools.response import error_result, from_action_result, mcp_response
+from harmonyos_dev_mcp._common.tools.response import error_result, from_action_result, mcp_response
 
 _KEY_ALIASES = {
     "home": "Home",

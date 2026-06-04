@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 from fastmcp import Client
 
-from common.server.base import run_server
+from harmonyos_dev_mcp._common.server.base import run_server
 
 
 def test_run_server_disables_banner_by_default():

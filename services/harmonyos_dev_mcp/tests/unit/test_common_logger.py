@@ -5,7 +5,7 @@ from pathlib import Path
 def test_logger_uses_localappdata_directory(monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", r"D:\Users\tester\AppData\Local")
 
-    import common.utils.logger as logger_module
+    import harmonyos_dev_mcp._common.utils.logger as logger_module
 
     logger_module = importlib.reload(logger_module)
 

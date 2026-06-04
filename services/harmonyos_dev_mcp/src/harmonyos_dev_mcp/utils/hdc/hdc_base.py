@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from common.utils.retry import is_transient_error, retry
+from harmonyos_dev_mcp._common.utils.retry import is_transient_error, retry
 from harmonyos_dev_mcp.config import Config
 
 

@@ -3,8 +3,8 @@
 import asyncio
 from typing import Optional
 
-from common.tools.registry import mcp_tool
-from common.tools.response import error_result, from_action_result, mcp_response, ok_result
+from harmonyos_dev_mcp._common.tools.registry import mcp_tool
+from harmonyos_dev_mcp._common.tools.response import error_result, from_action_result, mcp_response, ok_result
 
 from ..container import get_hdc
 from ..types import ListDevicesResult, QueryPackageResult

@@ -641,6 +641,12 @@ class HvigorWrapper:
         return score, path.stat().st_mtime
 
     @staticmethod
+    def _is_test_artifact(path: Path) -> bool:
+        lowered_parts = {part.lower() for part in path.parts}
+        lowered_name = path.name.lower()
+        return "ohostest" in lowered_parts or "-ohostest-" in lowered_name
+
+    @staticmethod
     def _build_output_resolution_guidance(*, stale_logged_output: bool = False) -> str:
         guidance = [
             "Build completed, but the tool could not locate a fresh artifact for this run.",
@@ -1895,6 +1901,16 @@ class HvigorWrapper:
                     "output_path": None,
                 }
             if output_path is None:
+                output_path = self._find_build_output(
+                    target,
+                    build_mode,
+                    product,
+                    module_name,
+                )
+                if output_path is not None:
+                    artifact_source = "cached_scan"
+                    sign_status = self._resolve_sign_status(output_path)
+            if output_path is None:
                 return {
                     "success": False,
                     "error_code": "BUILD_OUTPUT_NOT_FOUND",
@@ -1946,6 +1962,8 @@ class HvigorWrapper:
             self.project_path / "build",
             self.project_path / "entry" / "build",
         ]
+        if output_type == "hap":
+            output_dirs.append(self.project_path / "hapsigner")
         if module_name:
             output_dirs.append(self.project_path / module_name / "build")
 
@@ -1955,6 +1973,9 @@ class HvigorWrapper:
             if not output_dir.exists():
                 continue
             matches.extend(output_dir.rglob(f"*{extension}"))
+
+        if output_type == "hap":
+            matches = [path for path in matches if not self._is_test_artifact(path)]
 
         if not_before is not None:
             matches = [path for path in matches if self._is_fresh_output(path, not_before)]

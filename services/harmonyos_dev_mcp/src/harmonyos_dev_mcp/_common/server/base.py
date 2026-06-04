@@ -9,9 +9,9 @@ from typing import Callable, Optional
 from fastmcp import FastMCP
 from loguru import logger
 
-from common.exceptions import MCPError
-from common.tools.registry import get_registered_tools, get_tool_summary
-from common.tools.response import error_envelope, extract_error_info, to_mcp_result
+from harmonyos_dev_mcp._common.exceptions import MCPError
+from harmonyos_dev_mcp._common.tools.registry import get_registered_tools, get_tool_summary
+from harmonyos_dev_mcp._common.tools.response import error_envelope, extract_error_info, to_mcp_result
 
 
 def create_server(

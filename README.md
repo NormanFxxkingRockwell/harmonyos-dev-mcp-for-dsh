@@ -2,14 +2,14 @@
 
 HarmonyOS device automation and E2E testing MCP workspace.
 
-[![Version](https://img.shields.io/badge/version-0.7.6-blue)](services/harmonyos_dev_mcp/pyproject.toml)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue)](services/harmonyos_dev_mcp/pyproject.toml)
 [![Python](https://img.shields.io/badge/python-3.12+-blue)](https://www.python.org/)
 [![HarmonyOS](https://img.shields.io/badge/HarmonyOS-5.0+-green)](https://developer.huawei.com/consumer/cn/harmonyos/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 ## Overview
 
-This repository is a workspace for HarmonyOS MCP services. The current mainline service is `harmonyos_dev_mcp`, which exposes HarmonyOS build, device, UI, window, and log capabilities as MCP tools.
+This repository contains the `harmonyos_dev_mcp` service, which exposes HarmonyOS build, device, UI, window, and log capabilities as MCP tools.
 
 It is designed to support:
 
@@ -23,11 +23,8 @@ It is designed to support:
 
 ```text
 mcp_ho_dev/
-|- packages/
-|  |- common/                      # Shared MCP infrastructure
 |- services/
 |  |- harmonyos_dev_mcp/          # Main HarmonyOS device automation service
-|  |- harmonyos_compile_mcp/      # Reserved / non-mainline service
 |- pyproject.toml                 # Workspace config
 |- uv.lock
 |- README.md
@@ -47,7 +44,7 @@ Tool groups:
 ## Quick Start
 
 ```bash
-uv sync --all-packages
+uv sync
 uv run harmonyos-dev-mcp
 ```
 
@@ -82,6 +79,7 @@ uv run pytest services/harmonyos_dev_mcp/tests/unit -v --cov=harmonyos_dev_mcp
 - `build_app` is a long-running tool. Set MCP `tools/call timeout` to at least `60s`, and prefer `120s` for cold builds.
 - `build_app target="hnp"` builds a base HAP, injects module HNP packages from `entry/hnp`, and signs the HAP through the SDK packaging tools.
 - `logs_query` supports `errors` and `markers` modes.
+- Since `0.8.0`, the MCP infrastructure previously published as `harmonyos-mcp-common` is bundled inside `harmonyos-dev-mcp`; install and distribute the main package only.
 - The detailed parameter definitions for all tools are maintained in the tool reference, not in this top-level README.
 
 ## License

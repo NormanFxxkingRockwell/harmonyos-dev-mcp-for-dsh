@@ -47,7 +47,11 @@ class HdcDevice:
             logger.error(f"Failed to list devices: {result['stderr']}")
             return []
 
-        devices = [line.strip() for line in result["stdout"].split("\n") if line.strip()]
+        devices = [
+            line.strip()
+            for line in result["stdout"].splitlines()
+            if line.strip() and line.strip().lower() != "[empty]"
+        ]
         logger.debug(f"Found {len(devices)} devices: {devices}")
         return devices
 

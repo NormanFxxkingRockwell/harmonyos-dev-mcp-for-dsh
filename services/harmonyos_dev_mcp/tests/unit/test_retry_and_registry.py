@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tests for retry behavior and tool registration.
 """
 
@@ -6,8 +6,8 @@ import time
 
 import pytest
 
-from common.utils.retry import is_transient_error, retry
-from common.tools.registry import clear_registry, get_registered_tools, get_tool_summary, mcp_tool
+from harmonyos_dev_mcp._common.utils.retry import is_transient_error, retry
+from harmonyos_dev_mcp._common.tools.registry import clear_registry, get_registered_tools, get_tool_summary, mcp_tool
 
 
 class TestRetry:
@@ -135,7 +135,7 @@ class TestRegistry:
 
     def teardown_method(self):
         clear_registry()
-        from common.tools.registry import _registry
+        from harmonyos_dev_mcp._common.tools.registry import _registry
 
         _registry.extend(self._original)
 

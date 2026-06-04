@@ -1,4 +1,4 @@
-﻿"""Build/deploy tools for HarmonyOS."""
+"""Build/deploy tools for HarmonyOS."""
 
 import asyncio
 import os
@@ -8,13 +8,13 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from common.tools.registry import mcp_tool
+from harmonyos_dev_mcp._common.tools.registry import mcp_tool
 
 from ..container import get_hdc
 from ..types import BuildResult, InstallResult, RunAppResult, UninstallResult
 from ..utils.wrappers.hvigor_wrapper import HvigorWrapper
 from .device_support import DeviceToolSupport
-from common.tools.response import error_result, from_action_result, mcp_response, ok_result
+from harmonyos_dev_mcp._common.tools.response import error_result, from_action_result, mcp_response, ok_result
 
 MAX_ERRORS = 15
 BUILD_TIMEOUT_HINT = "Set MCP tools/call timeout to at least 60 seconds; 120 seconds is recommended for cold builds."

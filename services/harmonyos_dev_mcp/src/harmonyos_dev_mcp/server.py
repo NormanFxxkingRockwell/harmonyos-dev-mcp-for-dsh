@@ -2,8 +2,8 @@
 
 from loguru import logger
 
-from common.utils.logger import setup_logger
-from common.server.base import create_server, run_server
+from harmonyos_dev_mcp._common.utils.logger import setup_logger
+from harmonyos_dev_mcp._common.server.base import create_server, run_server
 
 from .config import Config
 from .tools import build, e2e, general, ui  # noqa: F401

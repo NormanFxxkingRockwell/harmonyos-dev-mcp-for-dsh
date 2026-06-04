@@ -1,6 +1,6 @@
 """Dependency injection container for the dev service."""
 
-from common.container import Container
+from harmonyos_dev_mcp._common.container import Container
 
 container = Container()
 

@@ -4,8 +4,8 @@ from typing import Optional
 
 from loguru import logger
 
-from common.tools.base import ToolBase
-from common.tools.response import error_result
+from harmonyos_dev_mcp._common.tools.base import ToolBase
+from harmonyos_dev_mcp._common.tools.response import error_result
 
 
 class DeviceToolSupport(ToolBase):

@@ -30,7 +30,7 @@ Typical use cases:
 ## Run
 
 ```bash
-uv sync --all-packages
+uv sync
 uv run harmonyos-dev-mcp
 ```
 
@@ -137,6 +137,20 @@ Run tests:
 uv run pytest services/harmonyos_dev_mcp/tests/unit -v
 ```
 
+## Release 0.8.0
+
+- Bundled the former `harmonyos-mcp-common` infrastructure inside this package as an internal module.
+- Removed the unused `harmonyos_compile_mcp` service line from the repository and release flow.
+- Switched publishing to a single package: `harmonyos-dev-mcp`.
+
+## Release 0.7.7
+
+- Added `build_app target="hsp"` for hvigor shared module builds.
+- Added `build_app target="hap" include_hsp=true` to build HSP modules, inject them under `shared_libs/`, and sign the integrated HAP with SDK tools.
+- Added auto-discovery for `type="shared"` modules, plus `hsp_module_names` to select one or more shared modules.
+- Merged HSP `pack.info` metadata into the repacked HAP and returned `hsp_output_paths` for multi-file installation flows.
+- Added unit coverage for HSP module validation, HSP build command dispatch, and HAP repack/sign with `--shared-libs-path`.
+
 ## Release 0.7.6
 
 - Added `build_app target="hnp"` for direct HNP HAP packaging and signing.
@@ -144,14 +158,6 @@ uv run pytest services/harmonyos_dev_mcp/tests/unit -v
 - Detects HNP packages under module `hnp` directories such as `entry/hnp/arm64-v8a/*.hnp`.
 - Returns `artifact_source="hnp_direct"` and a signed `*-signed-hnp.hap` output.
 - Added edge-case coverage for missing HNP packages, missing SDK packaging jars, missing hvigor packaging inputs, and ordinary `target="hap"` builds that should not trigger HNP repackaging.
-
-## Next Release
-
-- Added `build_app target="hsp"` for hvigor shared module builds.
-- Added `build_app target="hap" include_hsp=true` to build HSP modules, inject them under `shared_libs/`, and sign the integrated HAP with SDK tools.
-- Added auto-discovery for `type="shared"` modules, plus `hsp_module_names` to select one or more shared modules.
-- Merged HSP `pack.info` metadata into the repacked HAP and returned `hsp_output_paths` for multi-file installation flows.
-- Added unit coverage for HSP module validation, HSP build command dispatch, and HAP repack/sign with `--shared-libs-path`.
 
 ## Docs
 

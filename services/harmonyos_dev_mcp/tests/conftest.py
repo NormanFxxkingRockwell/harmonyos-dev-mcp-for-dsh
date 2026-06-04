@@ -243,9 +243,8 @@ def unwrap_result():
     return _unwrap
 
 ROOT = Path(__file__).resolve().parents[3]
-COMMON_SRC = ROOT / "packages" / "common" / "src"
 SERVICE_SRC = ROOT / "services" / "harmonyos_dev_mcp" / "src"
 
-for src_path in (str(SERVICE_SRC), str(COMMON_SRC)):
+for src_path in (str(SERVICE_SRC),):
     if src_path not in sys.path:
         sys.path.insert(0, src_path)

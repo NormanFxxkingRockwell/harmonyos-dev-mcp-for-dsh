@@ -10,6 +10,30 @@ class _FakeHdcDevice(HdcDevice):
 
 
 class TestHdcDevice:
+    def test_list_devices_ignores_empty_marker(self):
+        device = _FakeHdcDevice(
+            {
+                "success": True,
+                "stdout": "[Empty]\r\n",
+                "stderr": "",
+                "returncode": 0,
+            }
+        )
+
+        assert device.list_devices() == []
+
+    def test_list_devices_returns_real_targets(self):
+        device = _FakeHdcDevice(
+            {
+                "success": True,
+                "stdout": "3QC0124C11000711\n",
+                "stderr": "",
+                "returncode": 0,
+            }
+        )
+
+        assert device.list_devices() == ["3QC0124C11000711"]
+
     def test_install_marks_explicit_failure_output_as_failed(self):
         device = _FakeHdcDevice(
             {

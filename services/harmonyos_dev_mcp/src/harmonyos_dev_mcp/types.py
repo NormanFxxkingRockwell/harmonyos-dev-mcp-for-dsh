@@ -1,8 +1,8 @@
-﻿"""Shared result and payload type definitions for harmonyos_dev_mcp."""
+"""Shared result and payload type definitions for harmonyos_dev_mcp."""
 
 from typing import List, Literal, Optional, TypedDict
 
-from common.types import BaseResult
+from harmonyos_dev_mcp._common.types import BaseResult
 
 
 class DeviceResult(BaseResult, total=False):

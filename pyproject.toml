@@ -1,19 +1,17 @@
 [project]
 name = "mcp-ho-dev-workspace"
-version = "0.7.7"
+version = "0.8.0"
 description = "HarmonyOS MCP development workspace"
 requires-python = ">=3.12"
 dependencies = [
     "harmonyos-dev-mcp",
-    "harmonyos-mcp-common",
 ]
 
 [tool.uv.workspace]
-members = ["packages/common", "services/harmonyos_dev_mcp"]
+members = ["services/harmonyos_dev_mcp"]
 
 [tool.uv.sources]
 harmonyos-dev-mcp = { workspace = true }
-harmonyos-mcp-common = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -33,7 +31,7 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
 [tool.coverage.run]
-source = ["packages/common", "services/harmonyos_dev_mcp"]
+source = ["services/harmonyos_dev_mcp"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

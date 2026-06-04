@@ -8,7 +8,7 @@ from typing import Iterable, List, Optional
 
 from loguru import logger
 
-from common.config.base import ConfigBase
+from harmonyos_dev_mcp._common.config.base import ConfigBase
 
 
 class Config(ConfigBase):
