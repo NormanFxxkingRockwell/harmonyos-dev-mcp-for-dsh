@@ -17,10 +17,10 @@ from ...config import LogSecurityConfig
 from ...container import get_hdc
 from ...types import LogsQueryResult
 from ..device_support import DeviceToolSupport
-from .crash_parser import CrashParser
-from .historian import _check_and_cleanup_cache, fetch_historical_logs
-from .parser import LogParser
-from .time_utils import _build_time_range, _format_file_size, _needs_historical_logs, _parse_time_expr
+from ...logs.crash_parser import CrashParser
+from ...logs.historian import _check_and_cleanup_cache, fetch_historical_logs
+from ...logs.parser import LogParser
+from ...logs.time_utils import _build_time_range, _format_file_size, _needs_historical_logs, _parse_time_expr
 
 CRASH_LOG_DIR = "/data/log/faultlog/faultlogger"
 MAX_INPUT_FILE_SIZE = 200 * 1024 * 1024

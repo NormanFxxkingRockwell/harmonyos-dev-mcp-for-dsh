@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
-from ...config import LogSecurityConfig
+from ..config import LogSecurityConfig
 
 
 def _parse_time_expr(expr: str) -> Optional[Dict[str, datetime]]:

@@ -12,8 +12,8 @@ from typing import List, Optional
 
 from loguru import logger
 
-from ...config import LogSecurityConfig
-from ...container import get_hdc, get_hilogtool
+from ..config import LogSecurityConfig
+from ..container import get_hdc, get_hilogtool
 
 
 def _pull_dict_files(hdc, device: str, local_dir: str) -> Optional[str]:

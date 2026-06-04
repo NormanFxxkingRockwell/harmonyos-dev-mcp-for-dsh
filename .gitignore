@@ -38,8 +38,8 @@ Thumbs.db
 
 # Logs
 *.log
-logs/
-hm_logs/
+/logs/
+/hm_logs/
 *.bat
 
 # Test
