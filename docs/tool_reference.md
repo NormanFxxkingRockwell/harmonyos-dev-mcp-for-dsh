@@ -179,7 +179,7 @@ Examples:
 
 Detailed guide:
 
-- [logs_query.md](C:/Users/mu/Desktop/code/mcp_ho_dev/services/harmonyos_dev_mcp/docs/logs_query.md)
+- [logs_query.md](logs_query.md)
 
 ## Build Tools
 

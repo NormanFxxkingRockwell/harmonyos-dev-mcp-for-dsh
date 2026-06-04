@@ -1,17 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "mcp-ho-dev-workspace"
+name = "harmonyos-dev-mcp"
 version = "0.8.0"
-description = "HarmonyOS MCP development workspace"
+description = "HarmonyOS MCP service for device automation, app deployment, UI interaction, E2E support, and log validation."
 requires-python = ">=3.12"
+readme = "README.md"
+authors = [
+    { name = "huduanmu", email = "772927148@qq.com" }
+]
 dependencies = [
-    "harmonyos-dev-mcp",
+    "fastmcp>=0.1.0",
+    "loguru>=0.7.0",
 ]
 
-[tool.uv.workspace]
-members = ["services/harmonyos_dev_mcp"]
-
-[tool.uv.sources]
-harmonyos-dev-mcp = { workspace = true }
+[project.scripts]
+harmonyos-dev-mcp = "harmonyos_dev_mcp:main"
 
 [dependency-groups]
 dev = [
@@ -23,15 +29,18 @@ dev = [
     "mypy>=1.5.0",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/harmonyos_dev_mcp"]
+
 [tool.pytest.ini_options]
-testpaths = ["services/harmonyos_dev_mcp/tests"]
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
 [tool.coverage.run]
-source = ["services/harmonyos_dev_mcp"]
+source = ["src/harmonyos_dev_mcp"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

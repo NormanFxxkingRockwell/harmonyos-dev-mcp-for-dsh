@@ -242,8 +242,8 @@ def unwrap_result():
 
     return _unwrap
 
-ROOT = Path(__file__).resolve().parents[3]
-SERVICE_SRC = ROOT / "services" / "harmonyos_dev_mcp" / "src"
+ROOT = Path(__file__).resolve().parents[1]
+SERVICE_SRC = ROOT / "src"
 
 for src_path in (str(SERVICE_SRC),):
     if src_path not in sys.path:
