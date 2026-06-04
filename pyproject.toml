@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "harmonyos-dev-mcp"
-version = "0.8.0"
+version = "0.8.1"
 description = "HarmonyOS MCP service for device automation, app deployment, UI interaction, E2E support, and log validation."
 requires-python = ">=3.12"
 readme = "README.md"
@@ -15,6 +15,12 @@ dependencies = [
     "fastmcp>=0.1.0",
     "loguru>=0.7.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Deslord319/harmonyos-dev-mcp"
+Repository = "https://github.com/Deslord319/harmonyos-dev-mcp"
+Documentation = "https://github.com/Deslord319/harmonyos-dev-mcp/tree/main/docs"
+Issues = "https://github.com/Deslord319/harmonyos-dev-mcp/issues"
 
 [project.scripts]
 harmonyos-dev-mcp = "harmonyos_dev_mcp:main"
