@@ -11,6 +11,7 @@ Unified log query tool with two query modes:
 | Parameter | Type | Default | Notes |
 |---|---|---|---|
 | `device_id` | string | `null` | Target device ID |
+| `hdc_server` | string | `null` | Optional wireless HDC endpoint, for example `192.168.43.34:35215` |
 | `logs` | string[] | `null` | Inline raw log lines; highest priority |
 | `input_file` | string | `null` | Single local log file |
 | `input_files` | string[] | `null` | Multiple local log files |

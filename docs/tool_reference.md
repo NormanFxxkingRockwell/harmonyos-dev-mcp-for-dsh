@@ -26,6 +26,19 @@ All tools return the same top-level MCP shape:
 
 All parameter examples below show the `arguments` payload only.
 
+## Shared Device Routing
+
+Device-targeted tools accept an optional `hdc_server` parameter for wireless debugging by IP. Pass the wireless HDC endpoint, for example `192.168.43.34:35215`, to route commands as `hdc -t 192.168.43.34:35215 ...`.
+
+Routing behavior:
+
+- No `hdc_server`: existing local HDC behavior is unchanged.
+- `hdc_server` only: use the endpoint as the HDC target, equivalent to `hdc -t <IP:port> ...`.
+- `device_id` only: use the device ID or SN as the HDC target, equivalent to `hdc -t <device_id> ...`.
+- `device_id` plus `hdc_server`: use `device_id` as the target and `hdc_server` as the route server, equivalent to `hdc -t <device_id> -s <IP:port> ...`.
+
+You can set `HARMONYOS_HDC_SERVER` to provide a default wireless endpoint for tools that omit `hdc_server`.
+
 ## General Tools
 
 ### `list_devices`
@@ -36,7 +49,7 @@ Parameters:
 
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| none | - | - | - | No arguments |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 
 Key result fields:
 
@@ -58,6 +71,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `bundle_name` | string | Conditional | `null` | Required for `abilities`, `main_ability`, `permissions` |
 | `keyword` | string | No | `null` | Used only for package listing |
 | `info_type` | string | No | `list` | One of `list`, `abilities`, `main_ability`, `permissions` |
@@ -107,6 +121,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `logs` | string[] | No | `null` | Inline raw log lines, highest priority source |
 | `input_file` | string | No | `null` | Single local log file |
 | `input_files` | string[] | No | `null` | Multiple local log files |
@@ -280,6 +295,7 @@ Parameters:
 |---|---|---|---|---|
 | `hap_path` | string | Yes | - | Must end with `.hap` or `.app` |
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 
 Key result fields:
 
@@ -302,6 +318,7 @@ Parameters:
 |---|---|---|---|---|
 | `bundle_name` | string | Yes | - | Target app bundle |
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `ability_name` | string | No | `null` | Explicit launch ability |
 | `module_name` | string | No | `null` | Explicit module |
 | `auto_detect` | bool | No | `true` | Resolve main ability automatically |
@@ -336,6 +353,7 @@ Parameters:
 |---|---|---|---|---|
 | `bundle_name` | string | Yes | - | Target app bundle |
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 
 Common errors:
 
@@ -353,6 +371,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `x` | int | Conditional | `null` | Coordinate mode |
 | `y` | int | Conditional | `null` | Coordinate mode |
 | `element_handle` | object | Conditional | `null` | Handle from `find_element` or `wait_element` |
@@ -408,6 +427,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `from_x` | int | Conditional | `null` | Coordinate mode |
 | `from_y` | int | Conditional | `null` | Coordinate mode |
 | `to_x` | int | Conditional | `null` | Coordinate mode |
@@ -442,6 +462,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `x` | int | Conditional | `null` | Coordinate mode |
 | `y` | int | Conditional | `null` | Coordinate mode |
 | `text` | string | Yes | - | Text to input |
@@ -506,6 +527,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `key` | string | Yes | - | Key name or supported alias |
 
 Supported aliases include:
@@ -550,6 +572,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `text` | string | Conditional | `null` | Search criteria |
 | `element_type` | string | Conditional | `null` | Search criteria |
 | `element_id` | string | Conditional | `null` | Search criteria |
@@ -582,6 +605,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `local_path` | string | No | auto-generated path | Output path |
 | `display_id` | int | No | `0` | Full screenshot only |
 | `left` | int | Conditional | `null` | Region bounds |
@@ -614,6 +638,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `from_x` | int | Yes | - | Start coordinate |
 | `from_y` | int | Yes | - | Start coordinate |
 | `to_x` | int | Yes | - | End coordinate |
@@ -635,6 +660,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `bundle_name` | string | No | `null` | Resolve a target window first |
 | `window_id` | int | No | `null` | Resolve and validate a target window |
 
@@ -666,6 +692,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `bundle_name` | string | No | `null` | Filter by normalized bundle name |
 
 Key result fields:
@@ -683,6 +710,7 @@ Parameters:
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `device_id` | string | No | auto-resolve | Target device |
+| `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `bundle_name` | string | No | `null` | Search scope |
 | `window_id` | int | No | `null` | Search scope |
 | `text` | string | Conditional | `null` | Search target |

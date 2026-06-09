@@ -5,7 +5,7 @@ from importlib.metadata import PackageNotFoundError, version
 try:
     __version__ = version("harmonyos-dev-mcp")
 except PackageNotFoundError:
-    __version__ = "0.8.1"
+    __version__ = "0.8.3"
 
 __author__ = "HarmonyOS MCP Team"
 
