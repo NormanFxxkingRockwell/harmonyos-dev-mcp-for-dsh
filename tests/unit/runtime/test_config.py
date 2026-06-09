@@ -223,6 +223,7 @@ class TestConfigInit:
             "DEVECO_STUDIO_PATH": Config.DEVECO_STUDIO_PATH,
             "HARMONYOS_SDK_PATH": Config.HARMONYOS_SDK_PATH,
             "HDC_PATH": Config.HDC_PATH,
+            "HARMONYOS_HDC_SERVER": Config.HARMONYOS_HDC_SERVER,
             "HVIGOR_PATH": Config.HVIGOR_PATH,
             "HILOGTOOL_PATH": Config.HILOGTOOL_PATH,
             "NODE_PATH": Config.NODE_PATH,
@@ -232,6 +233,7 @@ class TestConfigInit:
         monkeypatch.setattr("harmonyos_dev_mcp.config.platform.system", lambda: "Windows")
         monkeypatch.setenv("BUILD_TIMEOUT", "321")
         monkeypatch.setenv("INSTALL_TIMEOUT", "123")
+        monkeypatch.setenv("HARMONYOS_HDC_SERVER", "10.0.0.8:8710")
         monkeypatch.delenv("DEVECO_STUDIO_PATH", raising=False)
         monkeypatch.delenv("HARMONYOS_SDK_PATH", raising=False)
         monkeypatch.delenv("HDC_PATH", raising=False)
@@ -269,6 +271,7 @@ class TestConfigInit:
             assert Config.HILOGTOOL_PATH == r"C:\DevEco\sdk\toolchains\hilogtool.exe"
             assert Config.BUILD_TIMEOUT == 321
             assert Config.INSTALL_TIMEOUT == 123
+            assert Config.HARMONYOS_HDC_SERVER == "10.0.0.8:8710"
         finally:
             for key, value in original_values.items():
                 setattr(Config, key, value)
@@ -278,6 +281,7 @@ class TestConfigInit:
             "DEVECO_STUDIO_PATH": Config.DEVECO_STUDIO_PATH,
             "HARMONYOS_SDK_PATH": Config.HARMONYOS_SDK_PATH,
             "HDC_PATH": Config.HDC_PATH,
+            "HARMONYOS_HDC_SERVER": Config.HARMONYOS_HDC_SERVER,
             "HVIGOR_PATH": Config.HVIGOR_PATH,
             "HILOGTOOL_PATH": Config.HILOGTOOL_PATH,
             "NODE_PATH": Config.NODE_PATH,
@@ -327,6 +331,7 @@ class TestConfigInit:
             "DEVECO_STUDIO_PATH": Config.DEVECO_STUDIO_PATH,
             "HARMONYOS_SDK_PATH": Config.HARMONYOS_SDK_PATH,
             "HDC_PATH": Config.HDC_PATH,
+            "HARMONYOS_HDC_SERVER": Config.HARMONYOS_HDC_SERVER,
             "HVIGOR_PATH": Config.HVIGOR_PATH,
             "HILOGTOOL_PATH": Config.HILOGTOOL_PATH,
             "NODE_PATH": Config.NODE_PATH,

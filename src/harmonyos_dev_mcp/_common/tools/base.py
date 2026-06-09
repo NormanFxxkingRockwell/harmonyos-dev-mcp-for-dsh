@@ -3,6 +3,7 @@
 import functools
 import inspect
 import os
+from typing import Any
 
 from loguru import logger
 
@@ -56,6 +57,16 @@ class ToolBase:
         """Validate decorated function keyword arguments by named rules."""
 
         def decorator(func):
+            def _preserve_tool_schema(wrapper):
+                signature = inspect.signature(func)
+                annotations = dict(getattr(func, "__annotations__", {}))
+                for parameter in signature.parameters.values():
+                    if parameter.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                        annotations.setdefault(parameter.name, Any)
+                wrapper.__signature__ = signature
+                wrapper.__annotations__ = annotations
+                return wrapper
+
             def _do_validate(kwargs):
                 for param_name, rules in param_rules.items():
                     value = kwargs.get(param_name)
@@ -88,14 +99,14 @@ class ToolBase:
                     _do_validate(kwargs)
                     return await func(*args, **kwargs)
 
-                return async_wrapper
+                return _preserve_tool_schema(async_wrapper)
 
             @functools.wraps(func)
             def sync_wrapper(*args, **kwargs):
                 _do_validate(kwargs)
                 return func(*args, **kwargs)
 
-            return sync_wrapper
+            return _preserve_tool_schema(sync_wrapper)
 
         return decorator
 
@@ -104,6 +115,16 @@ class ToolBase:
         """Wrap sync or async tool functions with standard error handling."""
 
         def decorator(func):
+            def _preserve_tool_schema(wrapper):
+                signature = inspect.signature(func)
+                annotations = dict(getattr(func, "__annotations__", {}))
+                for parameter in signature.parameters.values():
+                    if parameter.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                        annotations.setdefault(parameter.name, Any)
+                wrapper.__signature__ = signature
+                wrapper.__annotations__ = annotations
+                return wrapper
+
             if inspect.iscoroutinefunction(func):
 
                 @functools.wraps(func)
@@ -118,7 +139,7 @@ class ToolBase:
                             error_result["result"].setdefault(k, v)
                         return error_result
 
-                return async_wrapper
+                return _preserve_tool_schema(async_wrapper)
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
@@ -132,6 +153,6 @@ class ToolBase:
                         error_result["result"].setdefault(k, v)
                     return error_result
 
-            return wrapper
+            return _preserve_tool_schema(wrapper)
 
         return decorator

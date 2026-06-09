@@ -17,6 +17,7 @@ class Config(ConfigBase):
     DEVECO_STUDIO_PATH: Optional[str] = None
     HARMONYOS_SDK_PATH: Optional[str] = None
     HDC_PATH: Optional[str] = None
+    HARMONYOS_HDC_SERVER: Optional[str] = None
     HVIGOR_PATH: Optional[str] = None
     HILOGTOOL_PATH: Optional[str] = None
     NODE_PATH: Optional[str] = None
@@ -263,6 +264,7 @@ class Config(ConfigBase):
         cls.DEVECO_STUDIO_PATH = os.getenv("DEVECO_STUDIO_PATH")
         cls.HARMONYOS_SDK_PATH = os.getenv("HARMONYOS_SDK_PATH")
         cls.HDC_PATH = os.getenv("HDC_PATH")
+        cls.HARMONYOS_HDC_SERVER = os.getenv("HARMONYOS_HDC_SERVER")
         cls.HILOGTOOL_PATH = os.getenv("HILOGTOOL_PATH")
         cls.DEFAULT_DEVICE_ID = os.getenv("HARMONYOS_DEVICE_ID")
 
@@ -336,6 +338,8 @@ class Config(ConfigBase):
 
         if cls.HDC_PATH:
             logger.info(f"hdc path: {cls.HDC_PATH}")
+        if cls.HARMONYOS_HDC_SERVER:
+            logger.info(f"hdc server: {cls.HARMONYOS_HDC_SERVER}")
         if cls.NODE_PATH:
             logger.info(f"Node.js path: {cls.NODE_PATH}")
         if cls.HVIGOR_PATH:

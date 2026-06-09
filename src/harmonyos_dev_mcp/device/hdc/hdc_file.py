@@ -15,15 +15,9 @@ class HdcFile:
     def push_file(self, device_id: str, local_path: str, remote_path: str) -> bool:
         """Push a local file to the device."""
         logger.info(f"push file: {local_path} -> {remote_path}")
-        result = self._execute_command(
-            [
-                "-t",
-                device_id,
-                "file",
-                "send",
-                local_path,
-                remote_path,
-            ]
+        result = self._execute_hdc(
+            ["file", "send", local_path, remote_path],
+            device_id=device_id,
         )
 
         if result["success"]:
@@ -36,15 +30,9 @@ class HdcFile:
     def pull_file(self, device_id: str, remote_path: str, local_path: str) -> bool:
         """Pull a file from the device."""
         logger.info(f"pull file: {remote_path} -> {local_path}")
-        result = self._execute_command(
-            [
-                "-t",
-                device_id,
-                "file",
-                "recv",
-                remote_path,
-                local_path,
-            ]
+        result = self._execute_hdc(
+            ["file", "recv", remote_path, local_path],
+            device_id=device_id,
         )
 
         if result["success"]:
@@ -178,7 +166,6 @@ class HdcFile:
         """Return a full `hilog -x` snapshot for downstream filtering."""
         logger.info(f"get realtime logs for device {device_id}")
 
-        cmd = ["-t", device_id, "shell"]
         hilog_cmd = "hilog -x"
 
         if tag:
@@ -190,8 +177,7 @@ class HdcFile:
         if bundle_name:
             hilog_cmd += f' | grep "{bundle_name}"'
 
-        cmd.append(hilog_cmd)
-        result = self._execute_command(cmd, timeout=10)
+        result = self._execute_hdc(["shell", hilog_cmd], device_id=device_id, timeout=10)
 
         if result["success"]:
             log_lines = [line for line in result["stdout"].split("\n") if line.strip()]

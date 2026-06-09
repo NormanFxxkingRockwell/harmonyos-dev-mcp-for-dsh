@@ -12,6 +12,7 @@ from loguru import logger
 
 from harmonyos_dev_mcp._common.utils.retry import is_transient_error, retry
 from harmonyos_dev_mcp.config import Config
+from harmonyos_dev_mcp.device.hdc.routing import get_hdc_server_override
 
 
 class HdcBase:
@@ -123,6 +124,78 @@ class HdcBase:
             raise ValueError("hdc tool path is not configured")
 
         logger.info(f"Initialized HdcWrapper, hdc path: {self.hdc_path}")
+
+    @staticmethod
+    def _normalize_optional(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    def _effective_hdc_server(self) -> Optional[str]:
+        return self._normalize_optional(get_hdc_server_override() or Config.HARMONYOS_HDC_SERVER)
+
+    @staticmethod
+    def _server_args(server: Optional[str]) -> List[str]:
+        return ["-s", server] if server else []
+
+    @staticmethod
+    def _target_args(device_id: Optional[str]) -> List[str]:
+        return ["-t", device_id] if device_id else []
+
+    def _hdc_args(
+        self,
+        args: List[str],
+        *,
+        device_id: Optional[str] = None,
+        hdc_server: Optional[str] = None,
+    ) -> List[str]:
+        route_ip = self._normalize_optional(hdc_server) or self._effective_hdc_server()
+        target = self._normalize_optional(device_id)
+        server = None
+
+        if route_ip:
+            if target:
+                if target != route_ip:
+                    server = route_ip
+            else:
+                target = route_ip
+
+        return self._target_args(target) + self._server_args(server) + args
+
+    def _execute_hdc(
+        self,
+        args: List[str],
+        *,
+        device_id: Optional[str] = None,
+        timeout: int = None,
+        cwd: str = None,
+    ) -> Dict[str, Any]:
+        command_args = self._hdc_args(args, device_id=device_id)
+        if cwd is None:
+            return self._execute_command(command_args, timeout=timeout)
+
+        try:
+            return self._execute_command(command_args, timeout=timeout, cwd=cwd)
+        except TypeError as exc:
+            if "cwd" not in str(exc):
+                raise
+            logger.debug("Falling back to _execute_command without cwd support")
+            return self._execute_command(command_args, timeout=timeout)
+
+    async def _execute_hdc_async(
+        self,
+        args: List[str],
+        *,
+        device_id: Optional[str] = None,
+        timeout: int = None,
+        cwd: str = None,
+    ) -> Dict[str, Any]:
+        return await self._execute_command_async(
+            self._hdc_args(args, device_id=device_id),
+            timeout=timeout,
+            cwd=cwd,
+        )
 
     @retry(should_retry=is_transient_error)
     def _execute_command(self, args: List[str], timeout: int = None, cwd: str = None) -> Dict[str, Any]:
@@ -265,7 +338,7 @@ class HdcBase:
                 f"shell command '{cmd_name}' is not in the allowlist: {self.SHELL_COMMAND_WHITELIST}"
             )
 
-    def execute_shell(self, device_id: str, command: str, timeout: int = None) -> Dict[str, Any]:
+    def execute_shell(self, device_id: Optional[str], command: str, timeout: int = None) -> Dict[str, Any]:
         """
         Execute a validated shell command on a device.
 
@@ -283,4 +356,4 @@ class HdcBase:
             f"Executing shell command on device {device_id}: {command}"
             + (f", timeout={timeout}s" if timeout else "")
         )
-        return self._execute_command(["-t", device_id, "shell", command], timeout=timeout)
+        return self._execute_hdc(["shell", command], device_id=device_id, timeout=timeout)

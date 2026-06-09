@@ -1,7 +1,8 @@
+from harmonyos_dev_mcp.device.hdc.hdc_base import HdcBase
 from harmonyos_dev_mcp.device.hdc.hdc_file import HdcFile
 
 
-class _FakeHdcFile(HdcFile):
+class _FakeHdcFile(HdcBase, HdcFile):
     def __init__(self, result):
         self._result = result
 

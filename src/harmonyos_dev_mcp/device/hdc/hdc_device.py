@@ -40,8 +40,13 @@ class HdcDevice:
 
     def list_devices(self) -> List[str]:
         """Return connected device ids."""
+        route_ip = self._effective_hdc_server()
+        if route_ip:
+            logger.debug(f"Using configured hdc route as target device: {route_ip}")
+            return [route_ip]
+
         logger.debug("Getting device list")
-        result = self._execute_command(["list", "targets"])
+        result = self._execute_hdc(["list", "targets"])
 
         if not result["success"]:
             logger.error(f"Failed to list devices: {result['stderr']}")
@@ -100,20 +105,12 @@ class HdcDevice:
         hap_name = hap_file.name
 
         logger.info(f"Installing app on {device_id}: {hap_file} (cwd={hap_dir})")
-        command_args = ["-t", device_id, "install", hap_name]
-        try:
-            result = self._execute_command(
-                command_args,
-                timeout=Config.INSTALL_TIMEOUT,
-                cwd=hap_dir,
-            )
-        except TypeError as exc:
-            # Some tests and legacy subclasses still override _execute_command
-            # without the newer cwd parameter. Fall back to the old signature.
-            if "cwd" not in str(exc):
-                raise
-            logger.debug("Falling back to _execute_command without cwd support")
-            result = self._execute_command(command_args, timeout=Config.INSTALL_TIMEOUT)
+        result = self._execute_hdc(
+            ["install", hap_name],
+            device_id=device_id,
+            timeout=Config.INSTALL_TIMEOUT,
+            cwd=hap_dir,
+        )
 
         combined_output = "\n".join(
             part
@@ -144,7 +141,7 @@ class HdcDevice:
     def uninstall_app(self, device_id: str, bundle_name: str) -> Dict[str, Any]:
         """Uninstall an app from the target device."""
         logger.info(f"Uninstalling app from {device_id}: {bundle_name}")
-        result = self._execute_command(["-t", device_id, "uninstall", bundle_name])
+        result = self._execute_hdc(["uninstall", bundle_name], device_id=device_id)
 
         combined_output = "\n".join(
             part

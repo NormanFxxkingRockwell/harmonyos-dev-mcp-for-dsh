@@ -5,6 +5,7 @@ from typing import Optional
 
 from harmonyos_dev_mcp._common.tools.registry import mcp_tool
 from harmonyos_dev_mcp._common.tools.response import error_result, from_action_result, mcp_response, ok_result
+from harmonyos_dev_mcp.device.hdc.routing import hdc_server_context
 
 from ..container import get_hdc
 from ..types import ListDevicesResult, QueryPackageResult
@@ -20,9 +21,10 @@ _ALLOWED_QUERY_INFO_TYPES = ("list", "abilities", "main_ability", "permissions")
 @mcp_tool(category="general")
 @mcp_response("list_devices")
 @DeviceToolSupport.handle_tool_error("DEVICE_LIST_ERROR", devices=[], count=0)
-async def list_devices() -> ListDevicesResult:
-    hdc = get_hdc()
-    devices = await asyncio.to_thread(hdc.list_devices_with_info)
+async def list_devices(hdc_server: Optional[str] = None) -> ListDevicesResult:
+    with hdc_server_context(hdc_server):
+        hdc = get_hdc()
+        devices = await asyncio.to_thread(hdc.list_devices_with_info)
     return ok_result({"devices": devices, "count": len(devices)})
 
 

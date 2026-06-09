@@ -21,6 +21,16 @@ def mcp_response(tool: str):
     """Wrap tool outputs to MCP-standard top-level result."""
 
     def decorator(func: Callable):
+        def _preserve_tool_schema(wrapper: Callable) -> Callable:
+            signature = inspect.signature(func)
+            annotations = dict(getattr(func, "__annotations__", {}))
+            for parameter in signature.parameters.values():
+                if parameter.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                    annotations.setdefault(parameter.name, Any)
+            wrapper.__signature__ = signature
+            wrapper.__annotations__ = annotations
+            return wrapper
+
         if inspect.iscoroutinefunction(func):
 
             @functools.wraps(func)
@@ -46,7 +56,7 @@ def mcp_response(tool: str):
                     )
                 return _to_mcp_result(envelope)
 
-            return async_wrapper
+            return _preserve_tool_schema(async_wrapper)
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -71,7 +81,7 @@ def mcp_response(tool: str):
                 )
             return _to_mcp_result(envelope)
 
-        return wrapper
+        return _preserve_tool_schema(wrapper)
 
     return decorator
 

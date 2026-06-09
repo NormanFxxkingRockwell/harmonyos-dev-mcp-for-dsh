@@ -12,6 +12,7 @@ from loguru import logger
 
 from harmonyos_dev_mcp._common.tools.registry import mcp_tool
 from harmonyos_dev_mcp._common.tools.response import error_result, from_action_result, mcp_response, ok_result
+from harmonyos_dev_mcp.device.hdc.routing import hdc_server_context
 
 from ...config import LogSecurityConfig
 from ...container import get_hdc
@@ -776,6 +777,7 @@ async def _query_impl(
 @mcp_response("logs_query")
 async def logs_query(
     device_id: Optional[str] = None,
+    hdc_server: Optional[str] = None,
     logs: Optional[List[str]] = None,
     input_file: Optional[str] = None,
     input_files: Optional[List[str]] = None,
@@ -805,28 +807,29 @@ async def logs_query(
     success or failure markers such as picker save results.
     """
 
-    return await _query_impl(
-        device_id=device_id,
-        logs=logs,
-        input_file=input_file,
-        input_files=input_files,
-        lines=lines,
-        level=level,
-        tag=tag,
-        tag_search=tag_search,
-        keyword=keyword,
-        domain=domain,
-        pid=pid,
-        package_name=package_name,
-        start_time=start_time,
-        end_time=end_time,
-        seconds=seconds,
-        save_path=save_path,
-        time_expr=time_expr,
-        include_crash=include_crash,
-        mode=mode,
-        marker_keywords=marker_keywords,
-        fallback_to_historical=fallback_to_historical,
-        realtime_wait_ms=realtime_wait_ms,
-        context_lines=context_lines,
-    )
+    with hdc_server_context(hdc_server):
+        return await _query_impl(
+            device_id=device_id,
+            logs=logs,
+            input_file=input_file,
+            input_files=input_files,
+            lines=lines,
+            level=level,
+            tag=tag,
+            tag_search=tag_search,
+            keyword=keyword,
+            domain=domain,
+            pid=pid,
+            package_name=package_name,
+            start_time=start_time,
+            end_time=end_time,
+            seconds=seconds,
+            save_path=save_path,
+            time_expr=time_expr,
+            include_crash=include_crash,
+            mode=mode,
+            marker_keywords=marker_keywords,
+            fallback_to_historical=fallback_to_historical,
+            realtime_wait_ms=realtime_wait_ms,
+            context_lines=context_lines,
+        )

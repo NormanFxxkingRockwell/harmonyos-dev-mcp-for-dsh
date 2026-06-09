@@ -156,8 +156,9 @@ class HdcApp:
 
     def forward_port(self, device_id: str, local_port: int, remote_port: int) -> bool:
         logger.info(f"Forwarding localhost:{local_port} -> device:{remote_port}")
-        result = self._execute_command(
-            ["-t", device_id, "fport", f"tcp:{local_port}", f"tcp:{remote_port}"]
+        result = self._execute_hdc(
+            ["fport", f"tcp:{local_port}", f"tcp:{remote_port}"],
+            device_id=device_id,
         )
 
         if result["success"]:

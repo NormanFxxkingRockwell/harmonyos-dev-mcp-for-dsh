@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from functools import wraps
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from fastmcp import FastMCP
 from loguru import logger
@@ -50,6 +50,16 @@ def _error_result(tool_name: str, code: str, detail: str) -> dict:
 def _wrap_with_error_handler(func, on_error: Optional[Callable] = None):
     """Wrap sync/async tool functions with unified error handling."""
 
+    def _preserve_tool_schema(wrapper):
+        signature = inspect.signature(func)
+        annotations = dict(getattr(func, "__annotations__", {}))
+        for parameter in signature.parameters.values():
+            if parameter.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                annotations.setdefault(parameter.name, Any)
+        wrapper.__signature__ = signature
+        wrapper.__annotations__ = annotations
+        return wrapper
+
     if inspect.iscoroutinefunction(func):
 
         @wraps(func)
@@ -75,7 +85,7 @@ def _wrap_with_error_handler(func, on_error: Optional[Callable] = None):
                     on_error(str(e), "UNEXPECTED_ERROR")
                 return _error_result(func.__name__, "UNEXPECTED_ERROR", str(e))
 
-        return async_wrapper
+        return _preserve_tool_schema(async_wrapper)
 
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -100,7 +110,7 @@ def _wrap_with_error_handler(func, on_error: Optional[Callable] = None):
                 on_error(str(e), "UNEXPECTED_ERROR")
             return _error_result(func.__name__, "UNEXPECTED_ERROR", str(e))
 
-    return wrapper
+    return _preserve_tool_schema(wrapper)
 
 
 def run_server(
