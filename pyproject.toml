@@ -38,6 +38,16 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/harmonyos_dev_mcp"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "/docs",
+    "/src",
+    "/tests",
+    "/README.md",
+    "/pyproject.toml",
+    "/uv.lock",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

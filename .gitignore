@@ -21,6 +21,7 @@ wheels/
 *.egg
 
 # Virtual Environment
+.venv/
 venv/
 env/
 ENV/
@@ -40,6 +41,7 @@ Thumbs.db
 *.log
 /logs/
 /hm_logs/
+/hilog_files/
 *.bat
 
 # Test
