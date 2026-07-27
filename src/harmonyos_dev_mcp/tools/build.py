@@ -213,6 +213,7 @@ def _classify_error(message: str) -> str:
 @DeviceToolSupport.handle_tool_error("INSTALL_ERROR", hap_path="")
 @DeviceToolSupport.with_device(hap_path="")
 async def install_app(hap_path: str, device_id: Optional[str] = None) -> InstallResult:
+    """Install a HAP or APP artifact on a connected HarmonyOS device."""
     if not hap_path:
         return error_result(
             "MISSING_HAP_PATH",
@@ -265,6 +266,7 @@ async def run_app(
     module_name: Optional[str] = None,
     auto_detect: bool = True,
 ) -> RunAppResult:
+    """Launch a HarmonyOS application and verify that its window appears."""
     hdc = get_hdc()
 
     final_ability, final_module, auto_detected = await asyncio.to_thread(
@@ -365,6 +367,7 @@ def _resolve_ability(
 @DeviceToolSupport.handle_tool_error("UNINSTALL_ERROR", bundle_name="")
 @DeviceToolSupport.with_device(bundle_name="")
 async def uninstall_app(bundle_name: str, device_id: Optional[str] = None) -> UninstallResult:
+    """Uninstall a HarmonyOS application by bundle name."""
     if not bundle_name:
         return error_result(
             "MISSING_BUNDLE_NAME",

@@ -128,3 +128,27 @@ async def test_e2e_tool_schemas_are_exposed_via_fastmcp(mock_hdc):
     assert "bundle_name" in tool_map["get_ui_tree"].inputSchema["properties"]
     assert "bundle_name" in tool_map["wait_element"].inputSchema["properties"]
     assert tool_map["wait_element"].inputSchema["properties"]["state"]["enum"] == ["found", "gone"]
+
+
+@pytest.mark.asyncio
+async def test_all_tools_expose_agent_facing_descriptions_and_input_contracts(mock_hdc):
+    from harmonyos_dev_mcp.server import mcp
+
+    async with Client(mcp) as client:
+        tools = await client.list_tools()
+
+    tool_map = {tool.name: tool for tool in tools}
+
+    assert all(tool.description and tool.description.strip() for tool in tools)
+    assert tool_map["press_key"].inputSchema["required"] == ["key"]
+    modifier_schema = tool_map["press_key"].inputSchema["properties"]["modifiers"]
+    modifier_items = next(
+        option["items"]
+        for option in modifier_schema["anyOf"]
+        if option.get("type") == "array"
+    )
+    assert modifier_items["enum"] == ["Ctrl", "Alt", "Shift"]
+    assert tool_map["input_text"].inputSchema["required"] == ["text"]
+    assert tool_map["input_text"].inputSchema["properties"]["mode"]["default"] == "replace"
+    handle_schema = tool_map["input_text"].inputSchema["properties"]["element_handle"]
+    assert any(option.get("type") == "object" for option in handle_schema["anyOf"])

@@ -145,6 +145,7 @@ async def get_ui_tree(
     bundle_name: Optional[str] = None,
     window_id: Optional[int] = None,
 ) -> UITreeResult:
+    """Capture the UI tree globally or for a validated application window."""
     hdc = get_hdc()
     target_window_id = window_id
     validation_applied = bool(bundle_name or window_id is not None)
@@ -219,6 +220,7 @@ async def list_windows(
     device_id: Optional[str] = None,
     bundle_name: Optional[str] = None,
 ) -> ListWindowsResult:
+    """List current HarmonyOS windows, optionally filtered by bundle name."""
     hdc = get_hdc()
     raw = await asyncio.to_thread(hdc.get_window_list, device_id)
     all_windows = normalize_windows(raw.get("windows", []) if isinstance(raw, dict) else [])
@@ -256,6 +258,7 @@ async def wait_element(
     timeout_ms: int = 5000,
     interval_ms: int = 300,
 ) -> WaitElementResult:
+    """Wait until a UI element appears or disappears."""
     invalid = _validate_search_target(text=text, element_type=element_type, element_id=element_id)
     if invalid:
         invalid["structuredContent"]["result"]["state"] = state

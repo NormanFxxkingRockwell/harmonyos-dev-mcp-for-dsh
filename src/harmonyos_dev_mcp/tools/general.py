@@ -22,6 +22,7 @@ _ALLOWED_QUERY_INFO_TYPES = ("list", "abilities", "main_ability", "permissions")
 @mcp_response("list_devices")
 @DeviceToolSupport.handle_tool_error("DEVICE_LIST_ERROR", devices=[], count=0)
 async def list_devices(hdc_server: Optional[str] = None) -> ListDevicesResult:
+    """List connected HarmonyOS devices and basic device information."""
     with hdc_server_context(hdc_server):
         hdc = get_hdc()
         devices = await asyncio.to_thread(hdc.list_devices_with_info)
@@ -38,6 +39,7 @@ async def query_package(
     keyword: Optional[str] = None,
     info_type: str = "list",
 ) -> QueryPackageResult:
+    """List packages or query one package's abilities, main ability, or permissions."""
     hdc = get_hdc()
     requested_info_type = info_type
 

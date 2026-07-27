@@ -4,10 +4,18 @@ uitest 命令封装
 封装 hdc shell uitest uiInput 命令，提供 UI 自动化操作能力。
 """
 import re
-from typing import Dict, Any, Optional, List, Tuple
+import shlex
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 from loguru import logger
 
+from harmonyos_dev_mcp.config import Config
 from harmonyos_dev_mcp.device.hdc import HdcWrapper
+
+_KEYCODE_A = 2017
+_KEYCODE_SHIFT_LEFT = 2047
+_KEYCODE_FORWARD_DEL = 2071
+_KEYCODE_CTRL_LEFT = 2072
+_KEYCODE_MOVE_END = 2082
 
 
 class UiTestWrapper:
@@ -35,7 +43,6 @@ class UiTestWrapper:
         Returns:
             执行结果
         """
-        from harmonyos_dev_mcp.config import Config
         timeout = timeout or Config.UI_OPERATION_TIMEOUT
         full_command = f"uitest uiInput {command}"
         logger.debug(f"执行UI命令: {full_command}, 超时: {timeout}s")
@@ -250,8 +257,31 @@ class UiTestWrapper:
             操作结果
         """
         logger.info(f"输入文本: '{text}' at ({x}, {y})")
-        # 使用单引号包裹文本
-        result = self._execute_uitest(device_id, f"inputText {x} {y} '{text}'")
+        focus_result = self.click(device_id, x, y)
+        if not focus_result.get("success", False):
+            return {
+                "success": False,
+                "action": "inputText",
+                "x": x,
+                "y": y,
+                "text": text,
+                "stage": "focus",
+                "error": focus_result.get("error", "failed to focus input field"),
+            }
+
+        move_end_result = self.press_key(device_id, _KEYCODE_MOVE_END)
+        if not move_end_result.get("success", False):
+            return {
+                "success": False,
+                "action": "inputText",
+                "x": x,
+                "y": y,
+                "text": text,
+                "stage": "move_end",
+                "error": move_end_result.get("error", "failed to move caret to the end"),
+            }
+
+        result = self._input_focused_text(device_id, text)
         return {
             'success': result['success'],
             'action': 'inputText',
@@ -261,35 +291,129 @@ class UiTestWrapper:
             'message': '文本输入成功' if result['success'] else f'文本输入失败: {result.get("stderr", "")}'
         }
 
+    def _input_focused_text(self, device_id: str, text: str) -> Dict[str, Any]:
+        """Input focused text, commit any IME composition, and restore the IME mode."""
+        result = self._execute_uitest(device_id, f"text {shlex.quote(text)}")
+        if not result.get("success", False):
+            return result
+
+        first_shift = self.press_key(device_id, _KEYCODE_SHIFT_LEFT)
+        if not first_shift.get("success", False):
+            return {
+                "success": False,
+                "stderr": first_shift.get("error", "failed to commit IME composition"),
+            }
+        second_shift = self.press_key(device_id, _KEYCODE_SHIFT_LEFT)
+        if not second_shift.get("success", False):
+            return {
+                "success": False,
+                "stderr": second_shift.get("error", "failed to restore IME mode"),
+            }
+        return result
+
     # ========================================================================
     # 按键操作
     # ========================================================================
 
-    def press_key(self, device_id: str, key: str, key2: str = None) -> Dict[str, Any]:
-        """
-        模拟按键操作
+    def replace_text(self, device_id: str, x: int, y: int, text: str) -> Dict[str, Any]:
+        """Focus a field, clear its current value, and optionally enter replacement text."""
+        focus_result = self.click(device_id, x, y)
+        if not focus_result.get("success", False):
+            return {
+                "success": False,
+                "action": "replaceText",
+                "x": x,
+                "y": y,
+                "text": text,
+                "stage": "focus",
+                "error": focus_result.get("error", "failed to focus input field"),
+            }
 
-        Args:
-            device_id: 设备ID
-            key: 按键名称或ID (Home/Back/Enter等)
-            key2: 第二个按键（用于组合键）
+        select_result = self.send_key_event(device_id, [_KEYCODE_CTRL_LEFT, _KEYCODE_A])
+        if not select_result.get("success", False):
+            return {
+                "success": False,
+                "action": "replaceText",
+                "x": x,
+                "y": y,
+                "text": text,
+                "stage": "select_all",
+                "error": select_result.get("error", "failed to select existing text"),
+            }
 
-        Returns:
-            操作结果
-        """
-        cmd = f"keyEvent {key}"
-        if key2:
-            cmd += f" {key2}"
+        clear_result = self.press_key(device_id, _KEYCODE_FORWARD_DEL)
+        if not clear_result.get("success", False):
+            return {
+                "success": False,
+                "action": "replaceText",
+                "x": x,
+                "y": y,
+                "text": text,
+                "stage": "clear",
+                "error": clear_result.get("error", "failed to clear existing text"),
+            }
 
-        logger.info(f"按键: {key}" + (f" + {key2}" if key2 else ""))
+        if text == "":
+            return {
+                "success": True,
+                "action": "replaceText",
+                "x": x,
+                "y": y,
+                "text": "",
+                "message": "text cleared",
+            }
+
+        result = self._input_focused_text(device_id, text)
+        return {
+            "success": result["success"],
+            "action": "replaceText",
+            "x": x,
+            "y": y,
+            "text": text,
+            "message": (
+                "text replaced"
+                if result["success"]
+                else f'text replacement failed: {result.get("stderr", "")}'
+            ),
+        }
+
+    def send_key_event(
+        self,
+        device_id: str,
+        keys: Sequence[Union[str, int]],
+    ) -> Dict[str, Any]:
+        """Send one low-level HarmonyOS keyEvent containing one to three keys."""
+        key_values = list(keys)
+        if not 1 <= len(key_values) <= 3:
+            return {
+                "success": False,
+                "action": "keyEvent",
+                "keys": key_values,
+                "error": "keyEvent requires between one and three keys",
+            }
+
+        cmd = "keyEvent " + " ".join(str(key) for key in key_values)
+        logger.info(f"key press: {' + '.join(str(key) for key in key_values)}")
         result = self._execute_uitest(device_id, cmd)
         return {
-            'success': result['success'],
-            'action': 'keyEvent',
-            'key': key,
-            'key2': key2,
-            'message': '按键成功' if result['success'] else f'按键失败: {result.get("stderr", "")}'
+            "success": result["success"],
+            "action": "keyEvent",
+            "key": key_values[0],
+            "keys": key_values,
+            "message": (
+                "key press succeeded"
+                if result["success"]
+                else f'key press failed: {result.get("stderr", "")}'
+            ),
         }
+
+    def press_key(
+        self,
+        device_id: str,
+        key: Union[str, int],
+    ) -> Dict[str, Any]:
+        """Send one low-level HarmonyOS key event."""
+        return self.send_key_event(device_id, [key])
 
     def press_home(self, device_id: str) -> Dict[str, Any]:
         """返回主页"""

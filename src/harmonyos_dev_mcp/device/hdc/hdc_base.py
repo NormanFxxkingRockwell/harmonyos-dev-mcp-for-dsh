@@ -314,12 +314,13 @@ class HdcBase:
         if not stripped:
             raise ValueError("shell command cannot be empty")
 
+        unquoted = self._unquoted_shell_view(stripped)
         for pattern in self.SHELL_DANGEROUS_PATTERNS:
-            if pattern in stripped:
+            if pattern in unquoted:
                 raise ValueError(f"shell command contains dangerous fragment '{pattern}': {command!r}")
 
-        if "|" in stripped:
-            parts = [part.strip() for part in stripped.split("|")]
+        if "|" in unquoted:
+            parts = [part.strip() for part in unquoted.split("|")]
             for part in parts:
                 cmd_name = part.split()[0] if part.split() else ""
                 if cmd_name not in self.PIPE_ALLOWED_COMMANDS:
@@ -337,6 +338,40 @@ class HdcBase:
             raise ValueError(
                 f"shell command '{cmd_name}' is not in the allowlist: {self.SHELL_COMMAND_WHITELIST}"
             )
+
+    @staticmethod
+    def _unquoted_shell_view(command: str) -> str:
+        """Hide single-quoted literal text while preserving shell-active content."""
+        result: List[str] = []
+        state = "plain"
+        escaped = False
+        for char in command:
+            if escaped:
+                result.append(char if state != "single" else " ")
+                escaped = False
+                continue
+            if char == "\\" and state != "single":
+                result.append(char)
+                escaped = True
+                continue
+            if state == "single":
+                if char == "'":
+                    state = "plain"
+                    result.append(char)
+                else:
+                    result.append(" ")
+                continue
+            if state == "double":
+                result.append(char)
+                if char == '"':
+                    state = "plain"
+                continue
+            result.append(char)
+            if char == "'":
+                state = "single"
+            elif char == '"':
+                state = "double"
+        return "".join(result)
 
     def execute_shell(self, device_id: Optional[str], command: str, timeout: int = None) -> Dict[str, Any]:
         """

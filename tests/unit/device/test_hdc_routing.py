@@ -41,6 +41,23 @@ def test_existing_shell_command_keeps_target_flag():
     assert hdc.calls[-1]["args"] == ["-t", "device_001", "shell", "param get const.product.model"]
 
 
+def test_shell_validation_allows_dangerous_characters_inside_single_quoted_text():
+    hdc = _RoutingHdc()
+    command = "uitest uiInput inputText 10 20 '中文; a|b && c'"
+
+    result = hdc.execute_shell("device_001", command)
+
+    assert result["success"] is True
+    assert hdc.calls[-1]["args"][-1] == command
+
+
+def test_shell_validation_rejects_unquoted_control_operator():
+    hdc = _RoutingHdc()
+
+    with pytest.raises(ValueError, match="dangerous fragment"):
+        hdc.execute_shell("device_001", "uitest uiInput text ok; id")
+
+
 def test_shell_command_adds_route_after_sn_target():
     Config.HARMONYOS_HDC_SERVER = "192.168.43.10:8710"
     hdc = _RoutingHdc()

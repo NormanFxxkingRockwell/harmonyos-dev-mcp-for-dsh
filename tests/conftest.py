@@ -198,7 +198,15 @@ def mock_ui_operations() -> Generator[MagicMock, None, None]:
         "message": "滑动成功",
     }
     mock.input_text.return_value = {"success": True, "text": "ok", "x": 100, "y": 200, "message": "文本输入成功"}
+    mock.replace_text.return_value = {
+        "success": True,
+        "text": "ok",
+        "x": 100,
+        "y": 200,
+        "message": "文本替换成功",
+    }
     mock.press_key.return_value = {"success": True, "key": "Home", "message": "按键成功"}
+    mock.send_key_event.return_value = {"success": True, "keys": [2072, 2038], "message": "组合键成功"}
     mock.find_element.return_value = {
         "success": True,
         "window_id": 1,

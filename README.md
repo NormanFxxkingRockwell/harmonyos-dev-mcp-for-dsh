@@ -48,10 +48,10 @@ UI tools:
 | `screenshot` | `device_id?`, `hdc_server?`, `local_path?`, `display_id?=0`, `left*`, `top*`, `right*`, `bottom*` |
 | `click_element` | `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `text*`, `element_type*`, `element_id*`, `double_click?=false`, `bundle_name?` |
 | `long_press_element` | `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `text*`, `element_type*`, `element_id*`, `bundle_name?` |
-| `input_text` | `device_id?`, `hdc_server?`, `x*`, `y*`, `text`, `element_handle*`, `element_text*`, `element_type*`, `element_id*`, `bundle_name?` |
+| `input_text` | `text`, `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `element_text*`, `element_type*`, `element_id*`, `bundle_name?`, `mode?="replace"` |
 | `swipe` | `device_id?`, `hdc_server?`, `from_x*`, `from_y*`, `to_x*`, `to_y*`, `direction*`, `speed?=600` |
 | `drag` | `device_id?`, `hdc_server?`, `from_x`, `from_y`, `to_x`, `to_y`, `speed?=600` |
-| `press_key` | `device_id?`, `hdc_server?`, `key` |
+| `press_key` | `key`, `modifiers?`, `device_id?`, `hdc_server?` |
 | `find_element` | `device_id?`, `hdc_server?`, `text*`, `element_type*`, `element_id*`, `bundle_name?`, `window_id?` |
 
 E2E tools:

@@ -1,6 +1,6 @@
 """Shared result and payload type definitions for harmonyos_dev_mcp."""
 
-from typing import List, Literal, Optional, TypedDict
+from typing import List, Literal, Optional, TypedDict, Union
 
 from harmonyos_dev_mcp._common.types import BaseResult
 
@@ -166,10 +166,15 @@ class InputTextResult(BaseResult):
     text: str
     x: int
     y: int
+    mode: str
+    verified: bool
+    actual_text: Optional[str]
 
 
 class PressKeyResult(BaseResult):
-    key: str
+    key: Union[str, int]
+    modifiers: List[str]
+    key_event: List[Union[str, int]]
 
 
 class UITreeNode(TypedDict, total=False):

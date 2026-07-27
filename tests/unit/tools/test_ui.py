@@ -1,5 +1,6 @@
 """UI tool tests with standardized MCP response envelope."""
 
+from copy import deepcopy
 from unittest.mock import MagicMock
 
 import pytest
@@ -235,7 +236,20 @@ class TestInputText:
         assert sc["ok"] is True
         assert sc["result"]["message"] == "input text succeeded"
         assert sc["result"]["resolved_via"] == "coordinates"
-        mock_ui_operations.input_text.assert_called_once_with("device_001", 100, 200, "Hello World")
+        assert sc["result"]["mode"] == "replace"
+        assert sc["result"]["verified"] is False
+        mock_ui_operations.replace_text.assert_called_once_with("device_001", 100, 200, "Hello World")
+
+    async def test_input_can_append_text(
+        self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result
+    ):
+        from harmonyos_dev_mcp.tools import ui
+
+        sc = unwrap_result(await ui.input_text(x=100, y=200, text="Hello", mode="append"))
+
+        assert sc["ok"] is True
+        assert sc["result"]["mode"] == "append"
+        mock_ui_operations.input_text.assert_called_once_with("device_001", 100, 200, "Hello")
 
     async def test_input_by_lookup(self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result):
         from harmonyos_dev_mcp.tools import ui
@@ -245,7 +259,7 @@ class TestInputText:
         assert sc["ok"] is True
         assert sc["result"]["resolved_via"] == "search"
         mock_ui_operations.find_element.assert_called_once()
-        mock_ui_operations.input_text.assert_called_once()
+        mock_ui_operations.replace_text.assert_called_once()
 
     async def test_input_by_element_id(self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result):
         from harmonyos_dev_mcp.tools import ui
@@ -258,17 +272,36 @@ class TestInputText:
     async def test_input_by_handle(self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result):
         from harmonyos_dev_mcp.tools import ui
 
+        initial = deepcopy(mock_ui_operations.find_element.return_value)
+        updated = deepcopy(initial)
+        updated["elements"][0]["text"] = "Hello World"
+        mock_ui_operations.find_element.side_effect = [initial, updated]
+
         sc = unwrap_result(await ui.input_text(element_handle=_sample_handle(), text="Hello World"))
 
         assert sc["ok"] is True
         assert sc["result"]["resolved_via"] == "handle"
         assert sc["result"]["handle_refreshed"] is False
-        mock_ui_operations.input_text.assert_called_once_with("device_001", 100, 200, "Hello World")
+        assert sc["result"]["verified"] is True
+        assert sc["result"]["actual_text"] == "Hello World"
+        mock_ui_operations.replace_text.assert_called_once_with("device_001", 100, 200, "Hello World")
+
+    async def test_input_by_handle_rejects_false_command_success(
+        self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result
+    ):
+        from harmonyos_dev_mcp.tools import ui
+
+        sc = unwrap_result(await ui.input_text(element_handle=_sample_handle(), text="Hello World"))
+
+        assert sc["ok"] is False
+        assert sc["error"]["code"] == "TEXT_VERIFICATION_FAILED"
+        assert sc["result"]["verified"] is False
+        assert sc["result"]["actual_text"] == "Button"
 
     async def test_input_requires_text(self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result):
         from harmonyos_dev_mcp.tools import ui
 
-        sc = unwrap_result(await ui.input_text(x=100, y=200))
+        sc = unwrap_result(await ui.input_text(x=100, y=200, text=None))
 
         assert sc["ok"] is False
         assert sc["error"]["code"] == "MISSING_TEXT"
@@ -311,15 +344,20 @@ class TestPressKey:
 
         assert sc["ok"] is True
         assert sc["result"]["message"] == "key press succeeded"
+        assert sc["result"]["key"] == "Home"
+        assert sc["result"]["modifiers"] == []
+        assert sc["result"]["key_event"] == ["Home"]
         mock_ui_operations.press_key.assert_called_once_with("device_001", "Home")
 
-    async def test_press_key_requires_key(self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result):
+    async def test_press_key_rejects_empty_key(
+        self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result
+    ):
         from harmonyos_dev_mcp.tools import ui
 
-        sc = unwrap_result(await ui.press_key())
+        sc = unwrap_result(await ui.press_key(key=""))
 
         assert sc["ok"] is False
-        assert sc["error"]["code"] == "MISSING_KEY"
+        assert sc["error"]["code"] == "INVALID_KEY"
 
     async def test_press_key_normalizes_common_aliases(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result
@@ -330,18 +368,65 @@ class TestPressKey:
 
         assert sc["ok"] is True
         assert sc["result"]["key"] == "VolumeDown"
+        assert sc["result"]["modifiers"] == []
         mock_ui_operations.press_key.assert_called_once_with("device_001", "VolumeDown")
 
-    async def test_press_key_rejects_unsupported_key(
+    async def test_press_key_normalizes_system_key_case_and_separators(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result
     ):
         from harmonyos_dev_mcp.tools import ui
 
-        sc = unwrap_result(await ui.press_key(key="Ctrl"))
+        sc = unwrap_result(await ui.press_key(key="dpad_up"))
+
+        assert sc["ok"] is True
+        assert sc["result"]["key"] == "DPadUp"
+        mock_ui_operations.press_key.assert_called_once_with("device_001", "DPadUp")
+
+    async def test_press_key_supports_named_modifiers(
+        self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result
+    ):
+        from harmonyos_dev_mcp.tools import ui
+
+        sc = unwrap_result(await ui.press_key(key="V", modifiers=["Ctrl"]))
+
+        assert sc["ok"] is True
+        assert sc["result"]["key"] == 2038
+        assert sc["result"]["modifiers"] == ["Ctrl"]
+        assert sc["result"]["key_event"] == [2072, 2038]
+        mock_ui_operations.send_key_event.assert_called_once_with("device_001", [2072, 2038])
+
+    async def test_press_key_rejects_raw_shell_string(
+        self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result
+    ):
+        from harmonyos_dev_mcp.tools import ui
+
+        sc = unwrap_result(await ui.press_key(key="2072 2038"))
 
         assert sc["ok"] is False
         assert sc["error"]["code"] == "INVALID_KEY"
-        mock_ui_operations.press_key.assert_not_called()
+        mock_ui_operations.send_key_event.assert_not_called()
+
+    async def test_press_key_rejects_more_than_two_modifiers(
+        self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result
+    ):
+        from harmonyos_dev_mcp.tools import ui
+
+        sc = unwrap_result(
+            await ui.press_key(key="S", modifiers=["Ctrl", "Alt", "Shift"])
+        )
+
+        assert sc["ok"] is False
+        assert sc["error"]["code"] == "INVALID_MODIFIER_COUNT"
+
+    async def test_press_key_rejects_duplicate_modifiers(
+        self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result
+    ):
+        from harmonyos_dev_mcp.tools import ui
+
+        sc = unwrap_result(await ui.press_key(key="V", modifiers=["Ctrl", "Ctrl"]))
+
+        assert sc["ok"] is False
+        assert sc["error"]["code"] == "DUPLICATE_MODIFIER"
 
 
 class TestFindElement:

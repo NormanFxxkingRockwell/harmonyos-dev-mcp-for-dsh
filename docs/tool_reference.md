@@ -471,12 +471,19 @@ Parameters:
 | `element_type` | string | Conditional | `null` | Search mode type |
 | `element_id` | string | Conditional | `null` | Search mode id |
 | `bundle_name` | string | No | `null` | Search scope only |
+| `mode` | `replace` or `append` | No | `replace` | Replace the current value or append at the end |
 
 Rules:
 
 - `text` is always required.
 - Use one resolution mode only.
 - Do not pass `element_handle` as a JSON string.
+- `replace` focuses the field, selects all text, clears it, and enters the new value.
+- An empty `text` value is allowed in `replace` mode and clears the field.
+- Use `append` only when the existing value must be preserved; the caret is moved to the end first.
+- Text is sent after focusing the target; pending IME composition is committed and the prior input mode is restored.
+- Handle mode re-reads the element and fails with `TEXT_VERIFICATION_FAILED` if the UI value does not match.
+- Coordinate and search modes return `verified: false`; use a handle when reliable verification matters.
 
 Key result fields:
 
@@ -486,6 +493,8 @@ Key result fields:
 - `resolved_via`
 - `handle_refreshed`
 - `element_handle`
+- `verified`
+- `actual_text` (handle mode)
 
 Common errors:
 
@@ -494,6 +503,7 @@ Common errors:
 - `MISSING_PARAMS`
 - `INVALID_ELEMENT_HANDLE`
 - `ELEMENT_NOT_FOUND`
+- `TEXT_VERIFICATION_FAILED`
 
 Correct example:
 
@@ -520,48 +530,47 @@ Incorrect example:
 
 ### `press_key`
 
-Purpose: simulate supported system keys.
+Purpose: press one logical key, optionally with Ctrl, Alt, or Shift modifiers.
 
 Parameters:
 
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
+| `key` | string or integer | Yes | - | System key, one A-Z/0-9 key, or HarmonyOS KeyCode |
+| `modifiers` | array of `Ctrl`, `Alt`, `Shift` | No | `null` | Zero to two shortcut modifiers |
 | `device_id` | string | No | auto-resolve | Target device |
 | `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
-| `key` | string | Yes | - | Key name or supported alias |
 
-Supported aliases include:
+Rules:
 
-- `home`
-- `back`
-- `power`
-- `volume_up`
-- `volume_down`
+- Use `input_text` for strings such as `"hello"` or `"中文"`.
+- Use `press_key` for one system key or one shortcut.
+- `key` accepts system keys such as `Home`, `Back`, `Power`, `Enter`, and `VolumeDown`.
+- A single letter `A`-`Z`, digit `0`-`9`, or numeric HarmonyOS KeyCode is also accepted.
+- Modifiers are sent with the primary key as one HarmonyOS `keyEvent`.
 
-Supported normalized keys:
+Examples:
 
-- `Back`
-- `Camera`
-- `DPadCenter`
-- `DPadDown`
-- `DPadLeft`
-- `DPadRight`
-- `DPadUp`
-- `Enter`
-- `Escape`
-- `Home`
-- `Menu`
-- `Notification`
-- `Power`
-- `RecentApps`
-- `Search`
-- `VolumeDown`
-- `VolumeUp`
+```json
+{"key": "Home"}
+```
+
+```json
+{"key": "V", "modifiers": ["Ctrl"]}
+```
+
+```json
+{"key": 2054}
+```
+
+Raw shell fragments such as `"2072 2038"` are rejected.
 
 Common errors:
 
-- `MISSING_KEY`
 - `INVALID_KEY`
+- `INVALID_MODIFIER`
+- `INVALID_MODIFIER_COUNT`
+- `DUPLICATE_MODIFIER`
 
 ### `find_element`
 
