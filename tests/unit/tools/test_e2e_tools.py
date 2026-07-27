@@ -1,8 +1,11 @@
 """Tests for E2E-oriented wait tools."""
 
+import asyncio
+import time
 from unittest.mock import MagicMock
 
 import pytest
+
 
 @pytest.mark.asyncio
 class TestWaitTools:
@@ -12,7 +15,7 @@ class TestWaitTools:
         from harmonyos_dev_mcp.tools import e2e
         monkeypatch.setattr(e2e, "get_ui_operations", lambda: mock_ui_operations)
 
-        sc = unwrap_result(await e2e.wait_for_element(text="Button", state="found", timeout_ms=10, interval_ms=1))
+        sc = unwrap_result(await e2e.wait_for_element(text="Button", state="found", timeout_ms=100, interval_ms=1))
 
         assert sc["ok"] is True
         assert sc["result"]["state"] == "found"
@@ -41,7 +44,7 @@ class TestWaitTools:
 
         mock_ui_operations.find_element.return_value = {"success": True, "window_id": 1, "elements": [], "count": 0}
 
-        sc = unwrap_result(await e2e.wait_for_element(text="toast", state="gone", timeout_ms=10, interval_ms=1))
+        sc = unwrap_result(await e2e.wait_for_element(text="toast", state="gone", timeout_ms=100, interval_ms=1))
 
         assert sc["ok"] is True
         assert sc["result"]["state"] == "gone"
@@ -126,3 +129,67 @@ class TestWaitTools:
 
         assert sc["ok"] is True
         assert sc["result"]["state"] == "gone"
+
+    async def test_wait_for_element_bounds_stability_check_by_wall_clock_timeout(
+        self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
+    ):
+        from harmonyos_dev_mcp.tools import e2e
+
+        monkeypatch.setattr(e2e, "get_ui_operations", lambda: mock_ui_operations)
+        calls = 0
+
+        async def find_elements_once(**_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return {
+                    "success": True,
+                    "window_id": 1,
+                    "elements": [{"id": "btn_login", "x": 100, "y": 200}],
+                    "count": 1,
+                }
+            await asyncio.sleep(0.2)
+            return {
+                "success": True,
+                "window_id": 1,
+                "elements": [{"id": "btn_login", "x": 100, "y": 200}],
+                "count": 1,
+            }
+
+        monkeypatch.setattr(e2e, "_find_elements_once", find_elements_once)
+
+        started = time.monotonic()
+        sc = unwrap_result(
+            await e2e.wait_for_element(
+                text="Button",
+                state="found",
+                timeout_ms=20,
+                interval_ms=1,
+            )
+        )
+        elapsed = time.monotonic() - started
+
+        assert sc["ok"] is False
+        assert sc["error"]["code"] == "WAIT_TIMEOUT"
+        assert sc["result"]["elapsed_ms"] >= 20
+        assert elapsed < 0.1
+
+    async def test_wait_for_element_zero_timeout_skips_device_query(
+        self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
+    ):
+        from harmonyos_dev_mcp.tools import e2e
+
+        monkeypatch.setattr(e2e, "get_ui_operations", lambda: mock_ui_operations)
+
+        sc = unwrap_result(
+            await e2e.wait_for_element(
+                text="Button",
+                state="found",
+                timeout_ms=0,
+                interval_ms=0,
+            )
+        )
+
+        assert sc["ok"] is False
+        assert sc["error"]["code"] == "WAIT_TIMEOUT"
+        mock_ui_operations.find_element.assert_not_called()

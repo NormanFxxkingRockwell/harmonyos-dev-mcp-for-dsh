@@ -751,7 +751,7 @@ Parameters:
 | `element_type` | string | Conditional | `null` | Search target |
 | `element_id` | string | Conditional | `null` | Search target |
 | `state` | string | No | `found` | `found` or `gone` |
-| `timeout_ms` | int | No | `5000` | Wait timeout |
+| `timeout_ms` | int | No | `5000` | Strict wall-clock budget |
 | `interval_ms` | int | No | `300` | Poll interval and confirm interval |
 
 Rules:
@@ -760,6 +760,10 @@ Rules:
 - `state` must be `found` or `gone`.
 - `timeout_ms` and `interval_ms` must be `>= 0`.
 - The tool performs a second confirmation when `interval_ms > 0` to reduce transient flakiness.
+- Device queries, polling sleeps, and stability confirmation all share the
+  `timeout_ms` budget. Expiry returns `WAIT_TIMEOUT`, including when a device
+  query or confirmation is still pending.
+- `timeout_ms=0` returns immediately without querying the device.
 
 Key result fields:
 

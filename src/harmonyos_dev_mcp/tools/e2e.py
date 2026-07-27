@@ -84,6 +84,39 @@ async def _find_elements_once(
     )
 
 
+async def _find_elements_before_deadline(
+    *,
+    ui_ops,
+    device_id: str,
+    text: Optional[str],
+    element_type: Optional[str],
+    element_id: Optional[str],
+    bundle_name: Optional[str],
+    window_id: Optional[int],
+    deadline: float,
+) -> Optional[dict]:
+    loop = asyncio.get_running_loop()
+    remaining = deadline - loop.time()
+    if remaining <= 0:
+        return None
+
+    try:
+        return await asyncio.wait_for(
+            _find_elements_once(
+                ui_ops=ui_ops,
+                device_id=device_id,
+                text=text,
+                element_type=element_type,
+                element_id=element_id,
+                bundle_name=bundle_name,
+                window_id=window_id,
+            ),
+            timeout=remaining,
+        )
+    except TimeoutError:
+        return None
+
+
 async def _confirm_wait_state(
     *,
     ui_ops,
@@ -96,16 +129,17 @@ async def _confirm_wait_state(
     expected_present: bool,
     interval_ms: int,
     deadline: float,
-) -> tuple[bool, Optional[dict]]:
+) -> tuple[Optional[bool], Optional[dict]]:
     if interval_ms <= 0:
         return True, None
 
     loop = asyncio.get_running_loop()
-    if loop.time() >= deadline:
-        return True, None
+    remaining = deadline - loop.time()
+    if remaining <= 0:
+        return None, None
 
-    await asyncio.sleep(max(interval_ms, 0) / 1000)
-    confirm_raw = await _find_elements_once(
+    await asyncio.sleep(min(interval_ms / 1000, remaining))
+    confirm_raw = await _find_elements_before_deadline(
         ui_ops=ui_ops,
         device_id=device_id,
         text=text,
@@ -113,7 +147,10 @@ async def _confirm_wait_state(
         element_id=element_id,
         bundle_name=bundle_name,
         window_id=window_id,
+        deadline=deadline,
     )
+    if confirm_raw is None:
+        return None, None
     if not confirm_raw.get("success", False):
         return False, confirm_raw
 
@@ -258,7 +295,11 @@ async def wait_for_element(
     timeout_ms: int = 5000,
     interval_ms: int = 300,
 ) -> WaitForElementResult:
-    """Wait until a UI element appears or disappears."""
+    """Wait until a UI element appears or disappears within a strict wall-clock budget.
+
+    The timeout includes device queries, polling sleeps, and stability confirmation.
+    A zero timeout returns immediately without querying the device.
+    """
     invalid = _validate_search_target(text=text, element_type=element_type, element_id=element_id)
     if invalid:
         invalid["result"]["state"] = state
@@ -288,8 +329,29 @@ async def wait_for_element(
     started = loop.time()
     deadline = started + max(timeout_ms, 0) / 1000
 
+    def timeout_result(*, raw: Optional[dict] = None, elements: Optional[list] = None):
+        elapsed_ms = int((loop.time() - started) * 1000)
+        element = None
+        if state == "gone" and elements:
+            element = normalize_element(
+                elements[0],
+                bundle_name=bundle_name,
+                window_id=(raw or {}).get("window_id", window_id),
+            )
+        return error_result(
+            "WAIT_TIMEOUT",
+            f'element did not reach state "{state}" within {timeout_ms}ms',
+            result={
+                "device_id": device_id,
+                "state": state,
+                "satisfied": False,
+                "elapsed_ms": elapsed_ms,
+                "element": element,
+            },
+        )
+
     while True:
-        raw = await _find_elements_once(
+        raw = await _find_elements_before_deadline(
             ui_ops=ui_ops,
             device_id=device_id,
             text=text,
@@ -297,7 +359,11 @@ async def wait_for_element(
             element_id=element_id,
             bundle_name=bundle_name,
             window_id=window_id,
+            deadline=deadline,
         )
+        if raw is None:
+            return timeout_result()
+
         elapsed_ms = int((loop.time() - started) * 1000)
         if not raw.get("success", False):
             return from_action_result(
@@ -314,58 +380,29 @@ async def wait_for_element(
             )
 
         elements = raw.get("elements", [])
-        if state == "found":
-            if elements:
-                confirmed, confirm_raw = await _confirm_wait_state(
-                    ui_ops=ui_ops,
-                    device_id=device_id,
-                    text=text,
-                    element_type=element_type,
-                    element_id=element_id,
-                    bundle_name=bundle_name,
-                    window_id=window_id,
-                    expected_present=True,
-                    interval_ms=interval_ms,
-                    deadline=deadline,
-                )
-                if not confirmed:
-                    if confirm_raw and not confirm_raw.get("success", False):
-                        elapsed_ms = int((loop.time() - started) * 1000)
-                        return from_action_result(
-                            confirm_raw,
-                            default_code="FIND_ELEMENT_ERROR",
-                            default_detail="find element failed",
-                            default_result={
-                                "device_id": device_id,
-                                "state": state,
-                                "satisfied": False,
-                                "elapsed_ms": elapsed_ms,
-                                "element": None,
-                            },
-                        )
-                    elements = []
-                else:
-                    final_raw = confirm_raw or raw
-                    final_elements = final_raw.get("elements", [])
-                    elapsed_ms = int((loop.time() - started) * 1000)
-                    return ok_result(
-                        {
-                            "device_id": device_id,
-                            "state": state,
-                            "satisfied": True,
-                            "elapsed_ms": elapsed_ms,
-                            "element": normalize_element(
-                                final_elements[0],
-                                bundle_name=bundle_name,
-                                window_id=final_raw.get("window_id", window_id),
-                            ),
-                        }
-                    )
-            if loop.time() >= deadline:
-                return error_result(
-                    "WAIT_TIMEOUT",
-                    f'element did not reach state "{state}" within {timeout_ms}ms',
-                    result={
+        expected_present = state == "found"
+        if bool(elements) == expected_present:
+            confirmed, confirm_raw = await _confirm_wait_state(
+                ui_ops=ui_ops,
+                device_id=device_id,
+                text=text,
+                element_type=element_type,
+                element_id=element_id,
+                bundle_name=bundle_name,
+                window_id=window_id,
+                expected_present=expected_present,
+                interval_ms=interval_ms,
+                deadline=deadline,
+            )
+            if confirmed is None:
+                return timeout_result(raw=raw, elements=elements)
+            if confirm_raw and not confirm_raw.get("success", False):
+                elapsed_ms = int((loop.time() - started) * 1000)
+                return from_action_result(
+                    confirm_raw,
+                    default_code="FIND_ELEMENT_ERROR",
+                    default_detail="find element failed",
+                    default_result={
                         "device_id": device_id,
                         "state": state,
                         "satisfied": False,
@@ -373,56 +410,31 @@ async def wait_for_element(
                         "element": None,
                     },
                 )
-        else:
-            if not elements:
-                confirmed, confirm_raw = await _confirm_wait_state(
-                    ui_ops=ui_ops,
-                    device_id=device_id,
-                    text=text,
-                    element_type=element_type,
-                    element_id=element_id,
-                    bundle_name=bundle_name,
-                    window_id=window_id,
-                    expected_present=False,
-                    interval_ms=interval_ms,
-                    deadline=deadline,
-                )
-                if not confirmed:
-                    if confirm_raw and not confirm_raw.get("success", False):
-                        elapsed_ms = int((loop.time() - started) * 1000)
-                        return from_action_result(
-                            confirm_raw,
-                            default_code="FIND_ELEMENT_ERROR",
-                            default_detail="find element failed",
-                            default_result={
-                                "device_id": device_id,
-                                "state": state,
-                                "satisfied": False,
-                                "elapsed_ms": elapsed_ms,
-                                "element": None,
-                            },
-                        )
-                    elements = (confirm_raw or {}).get("elements", [])
-                else:
-                    elapsed_ms = int((loop.time() - started) * 1000)
-                    return ok_result(
-                        {"device_id": device_id, "state": state, "satisfied": True, "elapsed_ms": elapsed_ms, "element": None}
-                    )
-            if loop.time() >= deadline:
-                return error_result(
-                    "WAIT_TIMEOUT",
-                    f'element did not reach state "{state}" within {timeout_ms}ms',
-                    result={
+            if confirmed:
+                final_raw = confirm_raw or raw
+                final_elements = final_raw.get("elements", [])
+                elapsed_ms = int((loop.time() - started) * 1000)
+                return ok_result(
+                    {
                         "device_id": device_id,
                         "state": state,
-                        "satisfied": False,
+                        "satisfied": True,
                         "elapsed_ms": elapsed_ms,
-                        "element": normalize_element(
-                            elements[0],
-                            bundle_name=bundle_name,
-                            window_id=raw.get("window_id", window_id),
+                        "element": (
+                            normalize_element(
+                                final_elements[0],
+                                bundle_name=bundle_name,
+                                window_id=final_raw.get("window_id", window_id),
+                            )
+                            if expected_present
+                            else None
                         ),
-                    },
+                    }
                 )
+            raw = confirm_raw or raw
+            elements = raw.get("elements", [])
 
-        await asyncio.sleep(max(interval_ms, 0) / 1000)
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return timeout_result(raw=raw, elements=elements)
+        await asyncio.sleep(min(interval_ms / 1000, remaining))

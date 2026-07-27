@@ -81,6 +81,11 @@ E2E tools:
 | `list_windows` | `device_id?`, `hdc_server?`, `bundle_name?` |
 | `wait_for_element` | `device_id?`, `hdc_server?`, `bundle_name?`, `window_id?`, `text*`, `element_type*`, `element_id*`, `state?="found"`, `timeout_ms?=5000`, `interval_ms?=300` |
 
+`wait_for_element.timeout_ms` is a strict wall-clock budget covering device
+queries, polling sleeps, and the stability confirmation. When the budget
+expires, the tool returns `WAIT_TIMEOUT` without starting another observation;
+`timeout_ms=0` returns immediately without querying the device.
+
 `build_app` supports HarmonyOS HAP, HAR, HSP, APP, and HNP build flows. HSP outputs can also be integrated into a HAP with `include_hsp=true`.
 
 Detailed validation rules, result fields, errors, and examples are in the [tool reference](docs/tool_reference.md).
