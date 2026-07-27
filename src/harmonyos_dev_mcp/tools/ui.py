@@ -11,73 +11,24 @@ from ..container import get_hdc, get_ui_operations
 from ..types import (
     ClickResult,
     DragResult,
-    FindElementResult,
+    FindElementsResult,
     InputTextResult,
     LongPressResult,
     PressKeyResult,
     ScreenshotResult,
     SwipeResult,
 )
+from ..ui.keycodes import KeyCode, ResolvedKey, resolve_key
 from ..ui.normalizers.element import attach_element_metadata, build_lookup_hint, compact_candidate_handles
 from .device_support import DeviceToolSupport
 from harmonyos_dev_mcp._common.tools.response import error_result, from_action_result, mcp_response
 
-_KEY_ALIASES = {
-    "home": "Home",
-    "back": "Back",
-    "power": "Power",
-    "volumeup": "VolumeUp",
-    "volume_up": "VolumeUp",
-    "volup": "VolumeUp",
-    "vol_up": "VolumeUp",
-    "volumedown": "VolumeDown",
-    "volume_down": "VolumeDown",
-    "voldown": "VolumeDown",
-    "vol_down": "VolumeDown",
-}
-_ALLOWED_KEYS = {
-    "Back",
-    "Camera",
-    "DPadCenter",
-    "DPadDown",
-    "DPadLeft",
-    "DPadRight",
-    "DPadUp",
-    "Enter",
-    "Escape",
-    "Home",
-    "Menu",
-    "Notification",
-    "Power",
-    "RecentApps",
-    "Search",
-    "VolumeDown",
-    "VolumeUp",
-}
-_CANONICAL_KEY_NAMES = {key.lower(): key for key in _ALLOWED_KEYS}
-_KEY_CODE_ALIASES = {
-    "alt": 2045,
-    "alt_left": 2045,
-    "alt_right": 2046,
-    "shift": 2047,
-    "shift_left": 2047,
-    "shift_right": 2048,
-    "ctrl": 2072,
-    "control": 2072,
-    "ctrl_left": 2072,
-    "control_left": 2072,
-    "ctrl_right": 2073,
-    "control_right": 2073,
-    "delete": 2071,
-    "del": 2071,
-}
-_MIN_KEY_CODE = 0
-_MAX_KEY_CODE = 65535
-_MODIFIER_CODES = {
-    "alt": ("Alt", 2045),
-    "ctrl": ("Ctrl", 2072),
-    "control": ("Ctrl", 2072),
-    "shift": ("Shift", 2047),
+_MODIFIER_KEYS = {
+    "alt": ("Alt", int(KeyCode.ALT_LEFT)),
+    "ctrl": ("Ctrl", int(KeyCode.CTRL_LEFT)),
+    "control": ("Ctrl", int(KeyCode.CTRL_LEFT)),
+    "meta": ("Meta", int(KeyCode.META_LEFT)),
+    "shift": ("Shift", int(KeyCode.SHIFT_LEFT)),
 }
 
 
@@ -85,6 +36,7 @@ def _with_success_message(raw: Any, message: str) -> Any:
     if not isinstance(raw, dict):
         return raw
     normalized = dict(raw)
+    normalized.pop("action", None)
     if normalized.get("success", False):
         normalized["message"] = message
     return normalized
@@ -96,42 +48,23 @@ def _is_close(a: Any, b: Any, tolerance: int = 12) -> bool:
     return abs(int(a) - int(b)) <= tolerance
 
 
-def _normalize_key_name(key: str) -> Optional[str]:
-    normalized = str(key).strip()
-    if not normalized:
-        return None
-    alias_key = normalized.replace("-", "_").replace(" ", "_").lower()
-    collapsed_key = alias_key.replace("_", "")
-    return _KEY_ALIASES.get(alias_key) or _CANONICAL_KEY_NAMES.get(collapsed_key, normalized)
-
-
-def _validate_supported_key(key: Union[str, int]) -> Optional[Union[str, int]]:
-    if isinstance(key, bool):
-        return None
-    if isinstance(key, int):
-        return key if _MIN_KEY_CODE <= key <= _MAX_KEY_CODE else None
-
-    normalized = _normalize_key_name(key)
-    if normalized in _ALLOWED_KEYS:
-        return normalized
-
-    if normalized and normalized.isdecimal():
-        key_code = int(normalized)
-        return key_code if _MIN_KEY_CODE <= key_code <= _MAX_KEY_CODE else None
-
-    alias = str(key).strip().replace("-", "_").replace(" ", "_").lower()
-    if alias in _KEY_CODE_ALIASES:
-        return _KEY_CODE_ALIASES[alias]
-    if len(alias) == 1 and "a" <= alias <= "z":
-        return 2017 + ord(alias) - ord("a")
-    if len(alias) == 1 and "0" <= alias <= "9":
-        return 2000 + ord(alias) - ord("0")
-    return None
-
-
-def _normalize_modifier(modifier: str) -> Optional[Tuple[str, int]]:
+def _resolve_modifier(modifier: str) -> Optional[Tuple[str, int]]:
     alias = str(modifier).strip().replace("-", "_").replace(" ", "_").lower()
-    return _MODIFIER_CODES.get(alias)
+    return _MODIFIER_KEYS.get(alias)
+
+
+def _press_key_result(
+    resolved_key: Optional[ResolvedKey],
+    *,
+    modifiers: Optional[List[str]] = None,
+    event_key_codes: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    return {
+        "key": resolved_key.name if resolved_key is not None else None,
+        "key_code": resolved_key.code if resolved_key is not None else None,
+        "modifiers": list(modifiers or []),
+        "event_key_codes": list(event_key_codes or []),
+    }
 
 
 def _match_handle_candidates(candidates: list[Dict[str, Any]], handle: Dict[str, Any]) -> list[Dict[str, Any]]:
@@ -209,7 +142,7 @@ async def _resolve_handle_coords(
     if not isinstance(element_handle, dict):
         return False, error_result(
             "INVALID_ELEMENT_HANDLE",
-            "element_handle must be an object taken directly from find_element/wait_element. Do not pass a JSON string.",
+            "element_handle must be an object taken directly from find_elements/wait_for_element. Do not pass a JSON string.",
             result={"elements": [], "count": 0},
         )
 
@@ -389,10 +322,10 @@ async def _verify_input_handle(
 
 
 @mcp_tool(category="ui")
-@mcp_response("click_element")
+@mcp_response("click")
 @DeviceToolSupport.handle_tool_error("CLICK_ERROR", x=0, y=0)
 @DeviceToolSupport.with_device(x=0, y=0)
-async def click_element(
+async def click(
     device_id: Optional[str] = None,
     x: Optional[int] = None,
     y: Optional[int] = None,
@@ -400,13 +333,20 @@ async def click_element(
     text: Optional[str] = None,
     element_type: Optional[str] = None,
     element_id: Optional[str] = None,
-    double_click: bool = False,
+    count: Literal[1, 2] = 1,
     bundle_name: Optional[str] = None,
 ) -> ClickResult:
-    """Click a UI target by coordinates, element handle, or search criteria."""
+    """Click a UI target once or twice by coordinates, handle, or search criteria."""
     has_coords = x is not None and y is not None
     has_handle = element_handle is not None
     has_search = bool(text or element_type or element_id)
+
+    if count not in {1, 2}:
+        return error_result(
+            "INVALID_CLICK_COUNT",
+            "count must be 1 or 2",
+            result={"x": x or 0, "y": y or 0, "count": count},
+        )
 
     if has_coords and (has_handle or has_search):
         return error_result(
@@ -416,7 +356,8 @@ async def click_element(
         )
 
     ui_ops = get_ui_operations()
-    click_fn = ui_ops.double_click if double_click else ui_ops.click
+    click_fn = ui_ops.double_click if count == 2 else ui_ops.click
+    success_message = "double click succeeded" if count == 2 else "click succeeded"
 
     if has_coords:
         return await _perform_resolved_action(
@@ -429,9 +370,10 @@ async def click_element(
                 "handle_refreshed": False,
                 "element_handle": None,
             },
-            success_message="click succeeded" if not double_click else "double click succeeded",
+            success_message=success_message,
             default_code="CLICK_ERROR",
             default_detail="click failed",
+            extra_result={"count": count},
         )
 
     if has_handle:
@@ -442,9 +384,10 @@ async def click_element(
             action_fn=click_fn,
             device_id=device_id,
             resolved=resolved,
-            success_message="click succeeded" if not double_click else "double click succeeded",
+            success_message=success_message,
             default_code="CLICK_ERROR",
             default_detail="click failed",
+            extra_result={"count": count},
         )
 
     if has_search:
@@ -468,9 +411,10 @@ async def click_element(
                 "handle_refreshed": False,
                 "element_handle": None,
             },
-            success_message="click succeeded" if not double_click else "double click succeeded",
+            success_message=success_message,
             default_code="CLICK_ERROR",
             default_detail="click failed",
+            extra_result={"count": count},
         )
 
     return error_result(
@@ -481,10 +425,10 @@ async def click_element(
 
 
 @mcp_tool(category="ui")
-@mcp_response("long_press_element")
+@mcp_response("long_press")
 @DeviceToolSupport.handle_tool_error("LONG_PRESS_ERROR")
 @DeviceToolSupport.with_device()
-async def long_press_element(
+async def long_press(
     device_id: Optional[str] = None,
     x: Optional[int] = None,
     y: Optional[int] = None,
@@ -494,7 +438,7 @@ async def long_press_element(
     element_id: Optional[str] = None,
     bundle_name: Optional[str] = None,
 ) -> LongPressResult:
-    """Long-press a UI target by coordinates, element handle, or search criteria."""
+    """Long-press a UI target by coordinates, handle, or search criteria."""
     ui_ops = get_ui_operations()
 
     if x is not None and y is not None and (element_handle is not None or text or element_type or element_id):
@@ -639,11 +583,10 @@ async def input_text(
     """
     Set an input field to UTF-8 text, or append at the end when mode is ``append``.
 
-    Choose exactly one target: x/y coordinates, an element_handle returned by
-    find_element/wait_element, or element_text/element_type/element_id search criteria.
-    Replace mode is the default and an empty text value clears the field.
-    Handle mode re-reads the element and only reports success when its text matches.
-    Coordinate and search modes cannot verify element identity and return verified=false.
+    For reliable automation, first call find_elements/wait_for_element and pass its
+    element_handle; handle mode re-reads the field and verifies the final text.
+    Coordinates and search criteria remain best-effort and return verified=false.
+    Replace mode is the default, and an empty replacement clears the field.
     """
 
     default_result = {"text": text or "", "x": x or 0, "y": y or 0, "mode": mode}
@@ -728,7 +671,8 @@ async def input_text(
         if not ok:
             if isinstance(coords, dict) and coords.get("error", {}).get("code") == "ELEMENT_NOT_FOUND":
                 coords["error"]["detail"] = (
-                    "element not found for input_text lookup; use x/y for a stable path if the UI may have changed"
+                    "element not found for input_text lookup; call find_elements with "
+                    "more specific criteria and pass its element_handle"
                 )
             return coords
         ex, ey = coords
@@ -760,106 +704,125 @@ async def input_text(
 
 @mcp_tool(category="ui")
 @mcp_response("press_key")
-@DeviceToolSupport.handle_tool_error("PRESS_KEY_ERROR", key="", modifiers=[], key_event=[])
-@DeviceToolSupport.with_device(key="", modifiers=[], key_event=[])
+@DeviceToolSupport.handle_tool_error(
+    "PRESS_KEY_ERROR",
+    key=None,
+    key_code=None,
+    modifiers=[],
+    event_key_codes=[],
+)
+@DeviceToolSupport.with_device(
+    key=None,
+    key_code=None,
+    modifiers=[],
+    event_key_codes=[],
+)
 async def press_key(
     key: Union[str, int],
-    modifiers: Optional[List[Literal["Ctrl", "Alt", "Shift"]]] = None,
+    modifiers: Optional[List[Literal["Ctrl", "Alt", "Shift", "Meta"]]] = None,
     device_id: Optional[str] = None,
 ) -> PressKeyResult:
     """
-    Press one logical key, optionally with Ctrl, Alt, or Shift modifiers.
+    Press one logical key, optionally with Ctrl, Alt, Shift, or Meta modifiers.
 
     Use ``input_text`` to enter strings. Use this tool for system keys and
-    shortcuts such as key="Home" or key="V", modifiers=["Ctrl"]. ``key`` may
-    also be a single A-Z/0-9 key or a numeric HarmonyOS KeyCode.
+    shortcuts such as key="Home" or key="V", modifiers=["Ctrl"]. ``key`` accepts
+    every official HarmonyOS ``KEYCODE_*`` name and numeric value. Names are
+    case- and separator-insensitive: ``Tab``, ``KEYCODE_TAB``, ``page-up``, and
+    ``page_up`` are valid. Use ``Backspace`` for KEYCODE_DEL and ``Delete`` for
+    KEYCODE_FORWARD_DEL. The result returns the canonical key name, its numeric
+    code, and the exact key codes sent in the single HarmonyOS keyEvent.
     """
+
+    resolved_key = resolve_key(key)
+    if resolved_key is None:
+        return error_result(
+            "INVALID_KEY",
+            (
+                f"unsupported key: {key}. Use any official HarmonyOS KEYCODE_* "
+                "name (case and separators are optional) or its numeric value"
+            ),
+            result=_press_key_result(None),
+        )
 
     requested_modifiers = list(modifiers or [])
     if len(requested_modifiers) > 2:
         return error_result(
             "INVALID_MODIFIER_COUNT",
-            "at most two modifiers may be combined with one key",
-            result={"key": key, "modifiers": requested_modifiers, "key_event": []},
+            "HarmonyOS keyEvent supports at most two modifiers with one primary key",
+            result=_press_key_result(resolved_key, modifiers=requested_modifiers),
         )
 
     normalized_modifiers: List[str] = []
     modifier_codes: List[int] = []
     for requested_modifier in requested_modifiers:
-        normalized_modifier = _normalize_modifier(requested_modifier)
-        if normalized_modifier is None:
+        resolved_modifier = _resolve_modifier(requested_modifier)
+        if resolved_modifier is None:
             return error_result(
                 "INVALID_MODIFIER",
-                f"unsupported modifier: {requested_modifier}. Use Ctrl, Alt, or Shift",
-                result={"key": key, "modifiers": requested_modifiers, "key_event": []},
+                f"unsupported modifier: {requested_modifier}. Use Ctrl, Alt, Shift, or Meta",
+                result=_press_key_result(resolved_key, modifiers=requested_modifiers),
             )
-        modifier_name, modifier_code = normalized_modifier
+        modifier_name, modifier_code = resolved_modifier
         if modifier_name in normalized_modifiers:
             return error_result(
                 "DUPLICATE_MODIFIER",
                 f"modifier {modifier_name} was provided more than once",
-                result={"key": key, "modifiers": requested_modifiers, "key_event": []},
+                result=_press_key_result(resolved_key, modifiers=requested_modifiers),
             )
         normalized_modifiers.append(modifier_name)
         modifier_codes.append(modifier_code)
 
-    normalized_key = _validate_supported_key(key)
-    if normalized_key is None:
-        supported = ", ".join(sorted(_ALLOWED_KEYS))
-        return error_result(
-            "INVALID_KEY",
-            (
-                f"unsupported key: {key}. Use a supported system key, a numeric "
-                f"KeyCode, or one A-Z/0-9 key. System keys: {supported}"
-            ),
-            result={"key": key, "modifiers": normalized_modifiers, "key_event": []},
-        )
-
-    if normalized_key in modifier_codes:
+    if resolved_key.code in modifier_codes:
         return error_result(
             "DUPLICATE_MODIFIER",
             "the primary key duplicates one of the modifiers",
-            result={"key": normalized_key, "modifiers": normalized_modifiers, "key_event": []},
+            result=_press_key_result(resolved_key, modifiers=normalized_modifiers),
         )
 
-    key_event: List[Union[str, int]] = [*modifier_codes, normalized_key]
+    event_key_codes = [*modifier_codes, resolved_key.code]
     ui_ops = get_ui_operations()
     if modifier_codes:
-        raw = await asyncio.to_thread(ui_ops.send_key_event, device_id, key_event)
+        raw = await asyncio.to_thread(ui_ops.send_key_event, device_id, event_key_codes)
     else:
-        raw = await asyncio.to_thread(ui_ops.press_key, device_id, normalized_key)
+        raw = await asyncio.to_thread(ui_ops.press_key, device_id, resolved_key.code)
     if isinstance(raw, dict):
         raw = dict(raw)
         raw.pop("key", None)
         raw.pop("keys", None)
-        raw["key"] = normalized_key
-        raw["modifiers"] = normalized_modifiers
-        raw["key_event"] = key_event
+        raw.pop("action", None)
+        raw.update(
+            _press_key_result(
+                resolved_key,
+                modifiers=normalized_modifiers,
+                event_key_codes=event_key_codes,
+            )
+        )
     raw = _with_success_message(raw, "key press succeeded")
     return from_action_result(
         raw,
         default_code="PRESS_KEY_ERROR",
         default_detail="key press failed",
-        default_result={
-            "key": normalized_key,
-            "modifiers": normalized_modifiers,
-            "key_event": key_event,
-        },
+        default_result=_press_key_result(
+            resolved_key,
+            modifiers=normalized_modifiers,
+            event_key_codes=event_key_codes,
+        ),
     )
 
 
 @mcp_tool(category="ui")
-@mcp_response("find_element")
+@mcp_response("find_elements")
 @DeviceToolSupport.handle_tool_error("FIND_ELEMENT_ERROR", elements=[], count=0)
 @DeviceToolSupport.with_device(elements=[], count=0)
-async def find_element(
+async def find_elements(
     device_id: Optional[str] = None,
     text: Optional[str] = None,
     element_type: Optional[str] = None,
     element_id: Optional[str] = None,
     bundle_name: Optional[str] = None,
     window_id: Optional[int] = None,
-) -> FindElementResult:
+) -> FindElementsResult:
     """Find UI elements and return reusable element handles."""
     if not any([text, element_type, element_id]):
         return error_result(
@@ -987,6 +950,9 @@ async def drag(
     ui_ops = get_ui_operations()
     raw = await asyncio.to_thread(ui_ops.drag, device_id, from_x, from_y, to_x, to_y, speed)
     raw = _with_success_message(raw, "drag succeeded")
+    if isinstance(raw, dict):
+        raw.pop("from", None)
+        raw.pop("to", None)
     return from_action_result(
         raw,
         default_code="DRAG_ERROR",

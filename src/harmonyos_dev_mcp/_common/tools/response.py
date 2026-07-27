@@ -11,10 +11,41 @@ import functools
 import inspect
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional, get_type_hints
 from uuid import uuid4
 
+from fastmcp.tools import ToolResult
 from loguru import logger
+from mcp.types import CallToolResult
+
+
+class HarmonyToolResult(ToolResult):
+    """FastMCP result that preserves structured content and MCP error state."""
+
+    is_error: bool = False
+
+    def __init__(
+        self,
+        content: Any = None,
+        structured_content: Optional[dict[str, Any]] = None,
+        meta: Optional[dict[str, Any]] = None,
+        *,
+        is_error: bool = False,
+    ):
+        super().__init__(
+            content=content,
+            structured_content=structured_content,
+            meta=meta,
+        )
+        self.is_error = is_error
+
+    def to_mcp_result(self) -> CallToolResult:
+        return CallToolResult(
+            content=self.content,
+            structuredContent=self.structured_content,
+            isError=self.is_error,
+            _meta=self.meta,
+        )
 
 
 def mcp_response(tool: str):
@@ -24,11 +55,14 @@ def mcp_response(tool: str):
         def _preserve_tool_schema(wrapper: Callable) -> Callable:
             signature = inspect.signature(func)
             annotations = dict(getattr(func, "__annotations__", {}))
+            payload_type = get_type_hints(func).get("return", Any)
             for parameter in signature.parameters.values():
                 if parameter.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
                     annotations.setdefault(parameter.name, Any)
+            annotations["return"] = HarmonyToolResult
             wrapper.__signature__ = signature
             wrapper.__annotations__ = annotations
+            wrapper._mcp_payload_type = payload_type
             return wrapper
 
         if inspect.iscoroutinefunction(func):
@@ -90,20 +124,20 @@ def _duration_ms(started: float) -> int:
     return max(0, int((time.perf_counter() - started) * 1000))
 
 
-def _to_mcp_result(envelope: Dict[str, Any]) -> Dict[str, Any]:
+def _to_mcp_result(envelope: Dict[str, Any]) -> HarmonyToolResult:
     if envelope["ok"]:
         text = f"{envelope['tool']}: ok"
     else:
         detail = envelope.get("error", {}).get("detail") or "Operation failed"
         text = f"{envelope['tool']}: {detail}"
-    return {
-        "content": [{"type": "text", "text": text}],
-        "structuredContent": envelope,
-        "isError": not envelope["ok"],
-    }
+    return HarmonyToolResult(
+        content=text,
+        structured_content=envelope,
+        is_error=not envelope["ok"],
+    )
 
 
-def to_mcp_result(envelope: Dict[str, Any]) -> Dict[str, Any]:
+def to_mcp_result(envelope: Dict[str, Any]) -> HarmonyToolResult:
     """Public wrapper for MCP top-level result conversion."""
     return _to_mcp_result(envelope)
 
@@ -204,8 +238,12 @@ def error_result(
     }
 
 
-def extract_error_info(result: dict) -> tuple[str, str] | None:
+def extract_error_info(result: Any) -> tuple[str, str] | None:
     """Extract error detail and code from a standardized MCP envelope."""
+    if isinstance(result, ToolResult):
+        result = result.structured_content or {}
+    if not isinstance(result, dict):
+        return None
     structured = result
     if isinstance(result.get("structuredContent"), dict):
         structured = result["structuredContent"]

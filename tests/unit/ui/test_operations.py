@@ -1,5 +1,12 @@
 import shlex
 
+from harmonyos_dev_mcp.ui.keycodes import (
+    KEY_CODE_BY_NAME,
+    KeyCode,
+    key_code_for_digit,
+    key_code_for_letter,
+    resolve_key,
+)
 from harmonyos_dev_mcp.ui.operations import UiTestWrapper
 
 
@@ -10,6 +17,32 @@ class _RecordingHdc:
     def execute_shell(self, device_id, command, timeout=None):
         self.commands.append((device_id, command, timeout))
         return {"success": True, "stdout": "", "stderr": "", "returncode": 0}
+
+
+def test_keycodes_include_complete_sdk_catalog():
+    assert len(KEY_CODE_BY_NAME) == 354
+    assert KEY_CODE_BY_NAME["KEYCODE_CTRL_LEFT"] == 2072
+    assert int(KeyCode.CTRL_LEFT) == 2072
+    assert int(KeyCode.MOVE_END) == 2082
+    assert int(KeyCode.F24) == 2827
+    assert int(KeyCode.FINGERPRINT_SLIDE_DOWN) == 3234
+    assert key_code_for_letter("a") == 2017
+    assert key_code_for_letter("z") == 2042
+    assert key_code_for_digit("0") == 2000
+    assert key_code_for_digit("9") == 2009
+
+
+def test_keycode_resolution_accepts_official_forms_and_clear_aliases():
+    assert resolve_key("Tab").name == "KEYCODE_TAB"
+    assert resolve_key("KEYCODE_TAB").code == 2049
+    assert resolve_key("page-up").code == 2068
+    assert resolve_key("Backspace").name == "KEYCODE_DEL"
+    assert resolve_key("Delete").name == "KEYCODE_FORWARD_DEL"
+    assert resolve_key("DEL").code == 2055
+    assert resolve_key(2622).name == "KEYCODE_PASTE"
+    assert resolve_key(65535) is None
+    assert resolve_key("１２") is None
+    assert resolve_key("not-a-real-key") is None
 
 
 def test_input_text_quotes_utf8_and_shell_characters():

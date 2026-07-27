@@ -2,7 +2,7 @@
 
 `harmonyos_dev_mcp` provides HarmonyOS MCP tools for device discovery, app build and deployment, UI automation, E2E inspection, and log validation.
 
-[![Version](https://img.shields.io/badge/version-0.8.3-blue)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue)](pyproject.toml)
 [![PyPI](https://img.shields.io/pypi/v/harmonyos-dev-mcp.svg)](https://pypi.org/project/harmonyos-dev-mcp/)
 [![Python](https://img.shields.io/badge/python-3.12+-blue)](https://www.python.org/)
 
@@ -15,6 +15,21 @@
 ## What It Provides
 
 The package exposes 18 MCP tools:
+
+### 0.9.0 highlights
+
+- Clear action names: `click`, `long_press`, `find_elements`, and
+  `wait_for_element`.
+- Stable native MCP responses with correct `isError` values and an
+  `outputSchema` for every tool.
+- Complete mapping of all 354 OpenHarmony InputKit `KEYCODE_*` definitions.
+- Reliable text entry through reusable element handles with post-input
+  verification.
+- Side-effect-free package imports and explicit server startup.
+
+This release intentionally removes the old `click_element`,
+`long_press_element`, `find_element`, and `wait_element` tool names. Agents
+should refresh `tools/list` after upgrading.
 
 Parameter notation:
 
@@ -46,13 +61,17 @@ UI tools:
 | Tool | Parameters |
 |---|---|
 | `screenshot` | `device_id?`, `hdc_server?`, `local_path?`, `display_id?=0`, `left*`, `top*`, `right*`, `bottom*` |
-| `click_element` | `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `text*`, `element_type*`, `element_id*`, `double_click?=false`, `bundle_name?` |
-| `long_press_element` | `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `text*`, `element_type*`, `element_id*`, `bundle_name?` |
+| `click` | `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `text*`, `element_type*`, `element_id*`, `count?=1`, `bundle_name?` |
+| `long_press` | `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `text*`, `element_type*`, `element_id*`, `bundle_name?` |
 | `input_text` | `text`, `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `element_text*`, `element_type*`, `element_id*`, `bundle_name?`, `mode?="replace"` |
 | `swipe` | `device_id?`, `hdc_server?`, `from_x*`, `from_y*`, `to_x*`, `to_y*`, `direction*`, `speed?=600` |
 | `drag` | `device_id?`, `hdc_server?`, `from_x`, `from_y`, `to_x`, `to_y`, `speed?=600` |
 | `press_key` | `key`, `modifiers?`, `device_id?`, `hdc_server?` |
-| `find_element` | `device_id?`, `hdc_server?`, `text*`, `element_type*`, `element_id*`, `bundle_name?`, `window_id?` |
+| `find_elements` | `device_id?`, `hdc_server?`, `text*`, `element_type*`, `element_id*`, `bundle_name?`, `window_id?` |
+
+`press_key` accepts all 354 OpenHarmony InputKit `KEYCODE_*` definitions. Key
+names are case- and separator-insensitive, so `KEYCODE_PAGE_UP`, `PageUp`, and
+`page-up` are equivalent. Use `input_text` for strings and Chinese text.
 
 E2E tools:
 
@@ -60,7 +79,7 @@ E2E tools:
 |---|---|
 | `get_ui_tree` | `device_id?`, `hdc_server?`, `bundle_name?`, `window_id?` |
 | `list_windows` | `device_id?`, `hdc_server?`, `bundle_name?` |
-| `wait_element` | `device_id?`, `hdc_server?`, `bundle_name?`, `window_id?`, `text*`, `element_type*`, `element_id*`, `state?="found"`, `timeout_ms?=5000`, `interval_ms?=300` |
+| `wait_for_element` | `device_id?`, `hdc_server?`, `bundle_name?`, `window_id?`, `text*`, `element_type*`, `element_id*`, `state?="found"`, `timeout_ms?=5000`, `interval_ms?=300` |
 
 `build_app` supports HarmonyOS HAP, HAR, HSP, APP, and HNP build flows. HSP outputs can also be integrated into a HAP with `include_hsp=true`.
 
@@ -106,6 +125,13 @@ Install from source for local development:
 
 ```bash
 uv sync
+```
+
+Use `uv run` for development commands so Python resolves this checkout instead
+of another globally installed `harmonyos-dev-mcp` version:
+
+```bash
+uv run python -c "import harmonyos_dev_mcp; print(harmonyos_dev_mcp.__file__)"
 ```
 
 ## Run

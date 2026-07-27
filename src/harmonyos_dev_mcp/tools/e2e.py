@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 from harmonyos_dev_mcp._common.tools.registry import mcp_tool
 
 from ..container import get_hdc, get_ui_operations
-from ..types import ListWindowsResult, UITreeResult, WaitElementResult, WaitElementState
+from ..types import ElementWaitState, ListWindowsResult, UITreeResult, WaitForElementResult
 from ..ui.common import normalize_bundle_name
 from ..ui.normalizers.element import normalize_element
 from ..ui.normalizers.window import normalize_windows
@@ -244,25 +244,25 @@ async def list_windows(
 
 
 @mcp_tool(category="e2e")
-@mcp_response("wait_element")
+@mcp_response("wait_for_element")
 @DeviceToolSupport.handle_tool_error("WAIT_ELEMENT_ERROR", state="found", satisfied=False, elapsed_ms=0, element=None)
 @DeviceToolSupport.with_device(state="found", satisfied=False, elapsed_ms=0, element=None)
-async def wait_element(
+async def wait_for_element(
     device_id: Optional[str] = None,
     bundle_name: Optional[str] = None,
     window_id: Optional[int] = None,
     text: Optional[str] = None,
     element_type: Optional[str] = None,
     element_id: Optional[str] = None,
-    state: WaitElementState = "found",
+    state: ElementWaitState = "found",
     timeout_ms: int = 5000,
     interval_ms: int = 300,
-) -> WaitElementResult:
+) -> WaitForElementResult:
     """Wait until a UI element appears or disappears."""
     invalid = _validate_search_target(text=text, element_type=element_type, element_id=element_id)
     if invalid:
-        invalid["structuredContent"]["result"]["state"] = state
-        invalid["structuredContent"]["result"]["satisfied"] = False
+        invalid["result"]["state"] = state
+        invalid["result"]["satisfied"] = False
         return invalid
     if timeout_ms < 0:
         return error_result(

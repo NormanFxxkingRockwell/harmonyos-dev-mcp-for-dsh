@@ -6,13 +6,13 @@ import pytest
 
 @pytest.mark.asyncio
 class TestWaitTools:
-    async def test_wait_element_returns_first_match(
+    async def test_wait_for_element_returns_first_match(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
     ):
         from harmonyos_dev_mcp.tools import e2e
         monkeypatch.setattr(e2e, "get_ui_operations", lambda: mock_ui_operations)
 
-        sc = unwrap_result(await e2e.wait_element(text="Button", state="found", timeout_ms=10, interval_ms=1))
+        sc = unwrap_result(await e2e.wait_for_element(text="Button", state="found", timeout_ms=10, interval_ms=1))
 
         assert sc["ok"] is True
         assert sc["result"]["state"] == "found"
@@ -20,7 +20,7 @@ class TestWaitTools:
         assert sc["result"]["element"]["id"] == "btn_login"
         assert sc["result"]["element"]["bounds"]["left"] == 80
 
-    async def test_wait_element_found_times_out(
+    async def test_wait_for_element_found_times_out(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
     ):
         from harmonyos_dev_mcp.tools import e2e
@@ -28,12 +28,12 @@ class TestWaitTools:
 
         mock_ui_operations.find_element.return_value = {"success": True, "window_id": 1, "elements": [], "count": 0}
 
-        sc = unwrap_result(await e2e.wait_element(text="missing", state="found", timeout_ms=0, interval_ms=0))
+        sc = unwrap_result(await e2e.wait_for_element(text="missing", state="found", timeout_ms=0, interval_ms=0))
 
         assert sc["ok"] is False
         assert sc["error"]["code"] == "WAIT_TIMEOUT"
 
-    async def test_wait_element_gone_succeeds_when_missing(
+    async def test_wait_for_element_gone_succeeds_when_missing(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
     ):
         from harmonyos_dev_mcp.tools import e2e
@@ -41,57 +41,57 @@ class TestWaitTools:
 
         mock_ui_operations.find_element.return_value = {"success": True, "window_id": 1, "elements": [], "count": 0}
 
-        sc = unwrap_result(await e2e.wait_element(text="toast", state="gone", timeout_ms=10, interval_ms=1))
+        sc = unwrap_result(await e2e.wait_for_element(text="toast", state="gone", timeout_ms=10, interval_ms=1))
 
         assert sc["ok"] is True
         assert sc["result"]["state"] == "gone"
         assert sc["result"]["satisfied"] is True
 
-    async def test_wait_element_gone_times_out_when_element_still_present(
+    async def test_wait_for_element_gone_times_out_when_element_still_present(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
     ):
         from harmonyos_dev_mcp.tools import e2e
         monkeypatch.setattr(e2e, "get_ui_operations", lambda: mock_ui_operations)
 
-        sc = unwrap_result(await e2e.wait_element(text="toast", state="gone", timeout_ms=0, interval_ms=0))
+        sc = unwrap_result(await e2e.wait_for_element(text="toast", state="gone", timeout_ms=0, interval_ms=0))
 
         assert sc["ok"] is False
         assert sc["error"]["code"] == "WAIT_TIMEOUT"
 
-    async def test_wait_element_rejects_invalid_state(
+    async def test_wait_for_element_rejects_invalid_state(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
     ):
         from harmonyos_dev_mcp.tools import e2e
         monkeypatch.setattr(e2e, "get_ui_operations", lambda: mock_ui_operations)
 
-        sc = unwrap_result(await e2e.wait_element(text="toast", state="bad", timeout_ms=0, interval_ms=0))
+        sc = unwrap_result(await e2e.wait_for_element(text="toast", state="bad", timeout_ms=0, interval_ms=0))
 
         assert sc["ok"] is False
         assert sc["error"]["code"] == "INVALID_WAIT_STATE"
 
-    async def test_wait_element_rejects_negative_timeout(
+    async def test_wait_for_element_rejects_negative_timeout(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
     ):
         from harmonyos_dev_mcp.tools import e2e
         monkeypatch.setattr(e2e, "get_ui_operations", lambda: mock_ui_operations)
 
-        sc = unwrap_result(await e2e.wait_element(text="toast", timeout_ms=-1, interval_ms=0))
+        sc = unwrap_result(await e2e.wait_for_element(text="toast", timeout_ms=-1, interval_ms=0))
 
         assert sc["ok"] is False
         assert sc["error"]["code"] == "INVALID_TIMEOUT"
 
-    async def test_wait_element_rejects_negative_interval(
+    async def test_wait_for_element_rejects_negative_interval(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
     ):
         from harmonyos_dev_mcp.tools import e2e
         monkeypatch.setattr(e2e, "get_ui_operations", lambda: mock_ui_operations)
 
-        sc = unwrap_result(await e2e.wait_element(text="toast", timeout_ms=0, interval_ms=-1))
+        sc = unwrap_result(await e2e.wait_for_element(text="toast", timeout_ms=0, interval_ms=-1))
 
         assert sc["ok"] is False
         assert sc["error"]["code"] == "INVALID_INTERVAL"
 
-    async def test_wait_element_found_requires_stable_second_observation(
+    async def test_wait_for_element_found_requires_stable_second_observation(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
     ):
         from harmonyos_dev_mcp.tools import e2e
@@ -104,12 +104,12 @@ class TestWaitTools:
             {"success": True, "window_id": 1, "elements": [{"id": "btn_login", "x": 100, "y": 200}], "count": 1},
         ]
 
-        sc = unwrap_result(await e2e.wait_element(text="Button", state="found", timeout_ms=50, interval_ms=1))
+        sc = unwrap_result(await e2e.wait_for_element(text="Button", state="found", timeout_ms=50, interval_ms=1))
 
         assert sc["ok"] is True
         assert sc["result"]["satisfied"] is True
 
-    async def test_wait_element_gone_requires_stable_second_observation(
+    async def test_wait_for_element_gone_requires_stable_second_observation(
         self, mock_hdc: MagicMock, mock_ui_operations: MagicMock, unwrap_result, monkeypatch
     ):
         from harmonyos_dev_mcp.tools import e2e
@@ -122,7 +122,7 @@ class TestWaitTools:
             {"success": True, "window_id": 1, "elements": [], "count": 0},
         ]
 
-        sc = unwrap_result(await e2e.wait_element(text="toast", state="gone", timeout_ms=50, interval_ms=1))
+        sc = unwrap_result(await e2e.wait_for_element(text="toast", state="gone", timeout_ms=50, interval_ms=1))
 
         assert sc["ok"] is True
         assert sc["result"]["state"] == "gone"

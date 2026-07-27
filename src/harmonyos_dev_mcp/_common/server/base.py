@@ -12,6 +12,7 @@ from loguru import logger
 from harmonyos_dev_mcp._common.exceptions import MCPError
 from harmonyos_dev_mcp._common.tools.registry import get_registered_tools, get_tool_summary
 from harmonyos_dev_mcp._common.tools.response import error_envelope, extract_error_info, to_mcp_result
+from harmonyos_dev_mcp._common.tools.output_schema import build_output_schema
 
 
 def create_server(
@@ -26,7 +27,7 @@ def create_server(
         func = entry.func
         if enable_error_handler:
             func = _wrap_with_error_handler(func, on_error)
-        server.tool(output_schema=None)(func)
+        server.tool(output_schema=build_output_schema(func))(func)
         registered_tools.append(func)
 
     server.codex_registered_tools = tuple(registered_tools)

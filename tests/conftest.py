@@ -238,12 +238,14 @@ def mock_ui_operations() -> Generator[MagicMock, None, None]:
 
 @pytest.fixture
 def unwrap_result():
-    def _unwrap(result: dict) -> dict:
-        assert "content" in result
-        assert "structuredContent" in result
-        assert "isError" in result
-        sc = result["structuredContent"]
-        assert result["isError"] is (not sc["ok"])
+    def _unwrap(result) -> dict:
+        from harmonyos_dev_mcp._common.tools.response import HarmonyToolResult
+
+        assert isinstance(result, HarmonyToolResult)
+        assert result.content
+        sc = result.structured_content
+        assert isinstance(sc, dict)
+        assert result.is_error is (not sc["ok"])
         assert sc["meta"]["request_id"]
         assert sc["meta"]["duration_ms"] >= 0
         return sc

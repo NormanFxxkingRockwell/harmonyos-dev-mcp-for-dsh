@@ -1,6 +1,6 @@
 """Shared result and payload type definitions for harmonyos_dev_mcp."""
 
-from typing import List, Literal, Optional, TypedDict, Union
+from typing import List, Literal, Optional, TypedDict
 
 from harmonyos_dev_mcp._common.types import BaseResult
 
@@ -122,59 +122,82 @@ class Bounds(TypedDict):
     bottom: int
 
 
-class FindElementResult(DeviceResult):
+class FindElementsResult(DeviceResult):
     elements: List[UIElement]
     count: int
 
 
-WaitElementState = Literal["found", "gone"]
+ElementWaitState = Literal["found", "gone"]
 
 
-class WaitElementResult(DeviceResult, total=False):
-    state: WaitElementState
+class WaitForElementResult(DeviceResult, total=False):
+    state: ElementWaitState
     satisfied: bool
     elapsed_ms: int
     element: Optional[UIElement]
 
 
-class ClickResult(BaseResult):
+TargetResolution = Literal["coordinates", "handle", "lookup_hint", "search"]
+
+
+class ClickResult(BaseResult, total=False):
     x: int
     y: int
+    count: int
+    resolved_via: TargetResolution
+    handle_refreshed: bool
+    element_handle: Optional[dict]
+    message: str
 
 
-class LongPressResult(BaseResult):
+class LongPressResult(BaseResult, total=False):
     x: int
     y: int
+    resolved_via: TargetResolution
+    handle_refreshed: bool
+    element_handle: Optional[dict]
+    message: str
 
 
-class DragResult(BaseResult):
+class DragResult(BaseResult, total=False):
     from_x: int
     from_y: int
     to_x: int
     to_y: int
+    speed: int
+    message: str
 
 
-class SwipeResult(BaseResult):
+class SwipeResult(BaseResult, total=False):
     from_x: int
     from_y: int
     to_x: int
     to_y: int
     direction: Optional[str]
+    speed: int
+    message: str
 
 
-class InputTextResult(BaseResult):
+class InputTextResult(BaseResult, total=False):
     text: str
     x: int
     y: int
     mode: str
     verified: bool
     actual_text: Optional[str]
+    resolved_via: TargetResolution
+    handle_refreshed: bool
+    element_handle: Optional[dict]
+    stage: str
+    message: str
 
 
-class PressKeyResult(BaseResult):
-    key: Union[str, int]
+class PressKeyResult(BaseResult, total=False):
+    key: Optional[str]
+    key_code: Optional[int]
     modifiers: List[str]
-    key_event: List[Union[str, int]]
+    event_key_codes: List[int]
+    message: str
 
 
 class UITreeNode(TypedDict, total=False):
@@ -187,7 +210,7 @@ class UITreeNode(TypedDict, total=False):
 
 
 class UITreeResult(DeviceResult):
-    window_id: int
+    window_id: Optional[int]
     validated_window_id: Optional[int]
     validation_applied: bool
     capture_scope: str

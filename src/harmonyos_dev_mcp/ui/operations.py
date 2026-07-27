@@ -10,12 +10,7 @@ from loguru import logger
 
 from harmonyos_dev_mcp.config import Config
 from harmonyos_dev_mcp.device.hdc import HdcWrapper
-
-_KEYCODE_A = 2017
-_KEYCODE_SHIFT_LEFT = 2047
-_KEYCODE_FORWARD_DEL = 2071
-_KEYCODE_CTRL_LEFT = 2072
-_KEYCODE_MOVE_END = 2082
+from harmonyos_dev_mcp.ui.keycodes import KeyCode
 
 
 class UiTestWrapper:
@@ -269,7 +264,7 @@ class UiTestWrapper:
                 "error": focus_result.get("error", "failed to focus input field"),
             }
 
-        move_end_result = self.press_key(device_id, _KEYCODE_MOVE_END)
+        move_end_result = self.press_key(device_id, int(KeyCode.MOVE_END))
         if not move_end_result.get("success", False):
             return {
                 "success": False,
@@ -297,13 +292,13 @@ class UiTestWrapper:
         if not result.get("success", False):
             return result
 
-        first_shift = self.press_key(device_id, _KEYCODE_SHIFT_LEFT)
+        first_shift = self.press_key(device_id, int(KeyCode.SHIFT_LEFT))
         if not first_shift.get("success", False):
             return {
                 "success": False,
                 "stderr": first_shift.get("error", "failed to commit IME composition"),
             }
-        second_shift = self.press_key(device_id, _KEYCODE_SHIFT_LEFT)
+        second_shift = self.press_key(device_id, int(KeyCode.SHIFT_LEFT))
         if not second_shift.get("success", False):
             return {
                 "success": False,
@@ -329,7 +324,10 @@ class UiTestWrapper:
                 "error": focus_result.get("error", "failed to focus input field"),
             }
 
-        select_result = self.send_key_event(device_id, [_KEYCODE_CTRL_LEFT, _KEYCODE_A])
+        select_result = self.send_key_event(
+            device_id,
+            [int(KeyCode.CTRL_LEFT), int(KeyCode.A)],
+        )
         if not select_result.get("success", False):
             return {
                 "success": False,
@@ -341,7 +339,7 @@ class UiTestWrapper:
                 "error": select_result.get("error", "failed to select existing text"),
             }
 
-        clear_result = self.press_key(device_id, _KEYCODE_FORWARD_DEL)
+        clear_result = self.press_key(device_id, int(KeyCode.FORWARD_DEL))
         if not clear_result.get("success", False):
             return {
                 "success": False,

@@ -1,0 +1,479 @@
+"""Complete OpenHarmony key-code catalog and name resolution."""
+
+from dataclasses import dataclass
+from enum import IntEnum
+from types import MappingProxyType
+from typing import Final, Mapping, Optional, Union
+
+
+# Snapshot of KeyCode from the OpenHarmony InputKit header ``oh_key_code.h``.
+# Keep the official suffix intact so KEYCODE_* documentation maps directly to
+# this table.  Digit members are exposed on KeyCode as DIGIT_0 ... DIGIT_9
+# because Python identifiers cannot start with a number.
+_OFFICIAL_KEYCODE_DATA = """
+UNKNOWN=-1
+FN=0
+HOME=1
+BACK=2
+SEARCH=9
+MEDIA_PLAY_PAUSE=10
+MEDIA_STOP=11
+MEDIA_NEXT=12
+MEDIA_PREVIOUS=13
+MEDIA_REWIND=14
+MEDIA_FAST_FORWARD=15
+VOLUME_UP=16
+VOLUME_DOWN=17
+POWER=18
+CAMERA=19
+VOLUME_MUTE=22
+MUTE=23
+BRIGHTNESS_UP=40
+BRIGHTNESS_DOWN=41
+0=2000
+1=2001
+2=2002
+3=2003
+4=2004
+5=2005
+6=2006
+7=2007
+8=2008
+9=2009
+STAR=2010
+POUND=2011
+DPAD_UP=2012
+DPAD_DOWN=2013
+DPAD_LEFT=2014
+DPAD_RIGHT=2015
+DPAD_CENTER=2016
+A=2017
+B=2018
+C=2019
+D=2020
+E=2021
+F=2022
+G=2023
+H=2024
+I=2025
+J=2026
+K=2027
+L=2028
+M=2029
+N=2030
+O=2031
+P=2032
+Q=2033
+R=2034
+S=2035
+T=2036
+U=2037
+V=2038
+W=2039
+X=2040
+Y=2041
+Z=2042
+COMMA=2043
+PERIOD=2044
+ALT_LEFT=2045
+ALT_RIGHT=2046
+SHIFT_LEFT=2047
+SHIFT_RIGHT=2048
+TAB=2049
+SPACE=2050
+SYM=2051
+EXPLORER=2052
+ENVELOPE=2053
+ENTER=2054
+DEL=2055
+GRAVE=2056
+MINUS=2057
+EQUALS=2058
+LEFT_BRACKET=2059
+RIGHT_BRACKET=2060
+BACKSLASH=2061
+SEMICOLON=2062
+APOSTROPHE=2063
+SLASH=2064
+AT=2065
+PLUS=2066
+MENU=2067
+PAGE_UP=2068
+PAGE_DOWN=2069
+ESCAPE=2070
+FORWARD_DEL=2071
+CTRL_LEFT=2072
+CTRL_RIGHT=2073
+CAPS_LOCK=2074
+SCROLL_LOCK=2075
+META_LEFT=2076
+META_RIGHT=2077
+FUNCTION=2078
+SYSRQ=2079
+BREAK=2080
+MOVE_HOME=2081
+MOVE_END=2082
+INSERT=2083
+FORWARD=2084
+MEDIA_PLAY=2085
+MEDIA_PAUSE=2086
+MEDIA_CLOSE=2087
+MEDIA_EJECT=2088
+MEDIA_RECORD=2089
+F1=2090
+F2=2091
+F3=2092
+F4=2093
+F5=2094
+F6=2095
+F7=2096
+F8=2097
+F9=2098
+F10=2099
+F11=2100
+F12=2101
+NUM_LOCK=2102
+NUMPAD_0=2103
+NUMPAD_1=2104
+NUMPAD_2=2105
+NUMPAD_3=2106
+NUMPAD_4=2107
+NUMPAD_5=2108
+NUMPAD_6=2109
+NUMPAD_7=2110
+NUMPAD_8=2111
+NUMPAD_9=2112
+NUMPAD_DIVIDE=2113
+NUMPAD_MULTIPLY=2114
+NUMPAD_SUBTRACT=2115
+NUMPAD_ADD=2116
+NUMPAD_DOT=2117
+NUMPAD_COMMA=2118
+NUMPAD_ENTER=2119
+NUMPAD_EQUALS=2120
+NUMPAD_LEFT_PAREN=2121
+NUMPAD_RIGHT_PAREN=2122
+VIRTUAL_MULTITASK=2210
+BUTTON_A=2301
+BUTTON_B=2302
+BUTTON_X=2304
+BUTTON_Y=2305
+BUTTON_L1=2307
+BUTTON_R1=2308
+BUTTON_L2=2309
+BUTTON_R2=2310
+BUTTON_SELECT=2311
+BUTTON_START=2312
+BUTTON_MODE=2313
+BUTTON_THUMBL=2314
+BUTTON_THUMBR=2315
+SLEEP=2600
+ZENKAKU_HANKAKU=2601
+102ND=2602
+RO=2603
+KATAKANA=2604
+HIRAGANA=2605
+HENKAN=2606
+KATAKANA_HIRAGANA=2607
+MUHENKAN=2608
+LINEFEED=2609
+MACRO=2610
+NUMPAD_PLUSMINUS=2611
+SCALE=2612
+HANGUEL=2613
+HANJA=2614
+YEN=2615
+STOP=2616
+AGAIN=2617
+PROPS=2618
+UNDO=2619
+COPY=2620
+OPEN=2621
+PASTE=2622
+FIND=2623
+CUT=2624
+HELP=2625
+CALC=2626
+FILE=2627
+BOOKMARKS=2628
+NEXT=2629
+PLAYPAUSE=2630
+PREVIOUS=2631
+STOPCD=2632
+CONFIG=2634
+REFRESH=2635
+EXIT=2636
+EDIT=2637
+SCROLLUP=2638
+SCROLLDOWN=2639
+NEW=2640
+REDO=2641
+CLOSE=2642
+PLAY=2643
+BASSBOOST=2644
+PRINT=2645
+CHAT=2646
+FINANCE=2647
+CANCEL=2648
+KBDILLUM_TOGGLE=2649
+KBDILLUM_DOWN=2650
+KBDILLUM_UP=2651
+SEND=2652
+REPLY=2653
+FORWARDMAIL=2654
+SAVE=2655
+DOCUMENTS=2656
+VIDEO_NEXT=2657
+VIDEO_PREV=2658
+BRIGHTNESS_CYCLE=2659
+BRIGHTNESS_ZERO=2660
+DISPLAY_OFF=2661
+BTN_MISC=2662
+GOTO=2663
+INFO=2664
+PROGRAM=2665
+PVR=2666
+SUBTITLE=2667
+FULL_SCREEN=2668
+KEYBOARD=2669
+ASPECT_RATIO=2670
+PC=2671
+TV=2672
+TV2=2673
+VCR=2674
+VCR2=2675
+SAT=2676
+CD=2677
+TAPE=2678
+TUNER=2679
+PLAYER=2680
+DVD=2681
+AUDIO=2682
+VIDEO=2683
+MEMO=2684
+CALENDAR=2685
+RED=2686
+GREEN=2687
+YELLOW=2688
+BLUE=2689
+CHANNELUP=2690
+CHANNELDOWN=2691
+LAST=2692
+RESTART=2693
+SLOW=2694
+SHUFFLE=2695
+VIDEOPHONE=2696
+GAMES=2697
+ZOOMIN=2698
+ZOOMOUT=2699
+ZOOMRESET=2700
+WORDPROCESSOR=2701
+EDITOR=2702
+SPREADSHEET=2703
+GRAPHICSEDITOR=2704
+PRESENTATION=2705
+DATABASE=2706
+NEWS=2707
+VOICEMAIL=2708
+ADDRESSBOOK=2709
+MESSENGER=2710
+BRIGHTNESS_TOGGLE=2711
+SPELLCHECK=2712
+COFFEE=2713
+MEDIA_REPEAT=2714
+IMAGES=2715
+BUTTONCONFIG=2716
+TASKMANAGER=2717
+JOURNAL=2718
+CONTROLPANEL=2719
+APPSELECT=2720
+SCREENSAVER=2721
+ASSISTANT=2722
+KBD_LAYOUT_NEXT=2723
+BRIGHTNESS_MIN=2724
+BRIGHTNESS_MAX=2725
+KBDINPUTASSIST_PREV=2726
+KBDINPUTASSIST_NEXT=2727
+KBDINPUTASSIST_PREVGROUP=2728
+KBDINPUTASSIST_NEXTGROUP=2729
+KBDINPUTASSIST_ACCEPT=2730
+KBDINPUTASSIST_CANCEL=2731
+MOUSE_ASSISTANT=2732
+MOUSE_INTELLIGENCE_SELECTION=2733
+AOD_SINGLE_CLICK=2740
+FRONT=2800
+SETUP=2801
+WAKEUP=2802
+SENDFILE=2803
+DELETEFILE=2804
+XFER=2805
+PROG1=2806
+PROG2=2807
+MSDOS=2808
+SCREENLOCK=2809
+DIRECTION_ROTATE_DISPLAY=2810
+CYCLEWINDOWS=2811
+COMPUTER=2812
+EJECTCLOSECD=2813
+ISO=2814
+MOVE=2815
+F13=2816
+F14=2817
+F15=2818
+F16=2819
+F17=2820
+F18=2821
+F19=2822
+F20=2823
+F21=2824
+F22=2825
+F23=2826
+F24=2827
+PROG3=2828
+PROG4=2829
+DASHBOARD=2830
+SUSPEND=2831
+HP=2832
+SOUND=2833
+QUESTION=2834
+CONNECT=2836
+SPORT=2837
+SHOP=2838
+ALTERASE=2839
+SWITCHVIDEOMODE=2841
+BATTERY=2842
+BLUETOOTH=2843
+WLAN=2844
+UWB=2845
+WWAN_WIMAX=2846
+RFKILL=2847
+CHANNEL=3001
+BTN_0=3100
+BTN_1=3101
+BTN_2=3102
+BTN_3=3103
+BTN_4=3104
+BTN_5=3105
+BTN_6=3106
+BTN_7=3107
+BTN_8=3108
+BTN_9=3109
+DAGGER_CLICK=3211
+DAGGER_DOUBLE_CLICK=3212
+DAGGER_LONG_PRESS=3213
+DIV=3220
+XKEY=3232
+FINGERPRINT_SLIDE_UP=3233
+FINGERPRINT_SLIDE_DOWN=3234
+""".strip()
+
+
+def _parse_catalog() -> dict[str, int]:
+    return {
+        name: int(value)
+        for line in _OFFICIAL_KEYCODE_DATA.splitlines()
+        for name, value in [line.split("=", maxsplit=1)]
+    }
+
+
+_KEY_CODE_BY_SUFFIX = _parse_catalog()
+KEY_CODE_BY_NAME: Final[Mapping[str, int]] = MappingProxyType(
+    {f"KEYCODE_{name}": code for name, code in _KEY_CODE_BY_SUFFIX.items()}
+)
+"""All exact OpenHarmony ``KEYCODE_*`` names and their numeric values."""
+
+KeyCode = IntEnum(
+    "KeyCode",
+    {
+        (f"DIGIT_{name}" if name.isdecimal() else name): value
+        for name, value in _KEY_CODE_BY_SUFFIX.items()
+    },
+    module=__name__,
+)
+"""Complete OpenHarmony KeyCode enum."""
+
+_VALID_CODES: Final[frozenset[int]] = frozenset(_KEY_CODE_BY_SUFFIX.values()) - {-1}
+_SUFFIX_BY_CODE: Final[Mapping[int, str]] = MappingProxyType(
+    {code: name for name, code in _KEY_CODE_BY_SUFFIX.items()}
+)
+
+
+@dataclass(frozen=True)
+class ResolvedKey:
+    """Canonical official key name and numeric code."""
+
+    name: str
+    code: int
+
+
+def _normalize_lookup_name(value: str) -> str:
+    """Normalize an Agent-facing key name for separator-insensitive lookup."""
+    normalized = "".join(character for character in value.casefold() if character.isalnum())
+    if normalized.startswith("keycode"):
+        normalized = normalized[len("keycode") :]
+    return normalized
+
+
+_OFFICIAL_SUFFIX_BY_LOOKUP: Final[Mapping[str, str]] = MappingProxyType(
+    {_normalize_lookup_name(name): name for name in _KEY_CODE_BY_SUFFIX}
+)
+_ALIAS_SUFFIX_BY_LOOKUP: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "alt": "ALT_LEFT",
+        "backspace": "DEL",
+        "control": "CTRL_LEFT",
+        "controlleft": "CTRL_LEFT",
+        "controlright": "CTRL_RIGHT",
+        "ctrl": "CTRL_LEFT",
+        "cursorend": "MOVE_END",
+        "cursorhome": "MOVE_HOME",
+        "delete": "FORWARD_DEL",
+        "end": "MOVE_END",
+        "esc": "ESCAPE",
+        "meta": "META_LEFT",
+        "return": "ENTER",
+        "shift": "SHIFT_LEFT",
+    }
+)
+
+
+def _resolved_key(code: int) -> ResolvedKey:
+    return ResolvedKey(name=f"KEYCODE_{_SUFFIX_BY_CODE[code]}", code=code)
+
+
+def resolve_key(value: Union[str, int]) -> Optional[ResolvedKey]:
+    """Resolve a numeric code or flexible name to one canonical official key."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return _resolved_key(value) if value in _VALID_CODES else None
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.isascii() and raw.isdecimal():
+        numeric_value = int(raw)
+        return _resolved_key(numeric_value) if numeric_value in _VALID_CODES else None
+
+    normalized = _normalize_lookup_name(raw)
+    suffix = _ALIAS_SUFFIX_BY_LOOKUP.get(normalized) or _OFFICIAL_SUFFIX_BY_LOOKUP.get(normalized)
+    if suffix is None:
+        return None
+    code = _KEY_CODE_BY_SUFFIX[suffix]
+    return _resolved_key(code)
+
+
+def key_code_for_letter(letter: str) -> int:
+    """Return the OpenHarmony key code for one ASCII letter."""
+    normalized = letter.strip().upper()
+    if len(normalized) != 1 or not ("A" <= normalized <= "Z"):
+        raise ValueError("letter must be one ASCII A-Z character")
+    return _KEY_CODE_BY_SUFFIX[normalized]
+
+
+def key_code_for_digit(digit: str) -> int:
+    """Return the OpenHarmony key code for one ASCII digit."""
+    normalized = digit.strip()
+    if len(normalized) != 1 or not ("0" <= normalized <= "9"):
+        raise ValueError("digit must be one ASCII 0-9 character")
+    return _KEY_CODE_BY_SUFFIX[normalized]

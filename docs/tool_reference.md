@@ -24,6 +24,10 @@ All tools return the same top-level MCP shape:
 }
 ```
 
+Every tool also publishes an `outputSchema` through MCP `tools/list`. The
+schema describes the shared envelope and the tool-specific fields inside
+`structuredContent.result`.
+
 All parameter examples below show the `arguments` payload only.
 
 ## Shared Device Routing
@@ -362,9 +366,9 @@ Common errors:
 
 ## UI Tools
 
-### `click_element`
+### `click`
 
-Purpose: click or double-click a target.
+Purpose: click a target once or twice.
 
 Parameters:
 
@@ -374,11 +378,11 @@ Parameters:
 | `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 | `x` | int | Conditional | `null` | Coordinate mode |
 | `y` | int | Conditional | `null` | Coordinate mode |
-| `element_handle` | object | Conditional | `null` | Handle from `find_element` or `wait_element` |
+| `element_handle` | object | Conditional | `null` | Handle from `find_elements` or `wait_for_element` |
 | `text` | string | Conditional | `null` | Search mode |
 | `element_type` | string | Conditional | `null` | Search mode |
 | `element_id` | string | Conditional | `null` | Search mode |
-| `double_click` | bool | No | `false` | Use double click |
+| `count` | `1` or `2` | No | `1` | Single or double click |
 | `bundle_name` | string | No | `null` | Search scope only |
 
 Rules:
@@ -391,6 +395,7 @@ Key result fields:
 
 - `x`
 - `y`
+- `count`
 - `resolved_via`
 - `handle_refreshed`
 - `element_handle`
@@ -399,17 +404,18 @@ Common errors:
 
 - `PARAM_CONFLICT`
 - `MISSING_PARAMS`
+- `INVALID_CLICK_COUNT`
 - `INVALID_ELEMENT_HANDLE`
 - `ELEMENT_NOT_FOUND`
 - `AMBIGUOUS_ELEMENT_MATCH`
 
-### `long_press_element`
+### `long_press`
 
 Purpose: long press a target.
 
 Parameters:
 
-Same resolution modes as `click_element`, except no `double_click`.
+Same resolution modes as `click`, except no `count`.
 
 Common errors:
 
@@ -482,8 +488,9 @@ Rules:
 - An empty `text` value is allowed in `replace` mode and clears the field.
 - Use `append` only when the existing value must be preserved; the caret is moved to the end first.
 - Text is sent after focusing the target; pending IME composition is committed and the prior input mode is restored.
+- For reliable automation, call `find_elements` or `wait_for_element` first and pass its `element_handle`.
 - Handle mode re-reads the element and fails with `TEXT_VERIFICATION_FAILED` if the UI value does not match.
-- Coordinate and search modes return `verified: false`; use a handle when reliable verification matters.
+- Coordinate and search modes are best-effort and return `verified: false`.
 
 Key result fields:
 
@@ -530,14 +537,14 @@ Incorrect example:
 
 ### `press_key`
 
-Purpose: press one logical key, optionally with Ctrl, Alt, or Shift modifiers.
+Purpose: press one logical key, optionally with Ctrl, Alt, Shift, or Meta modifiers.
 
 Parameters:
 
 | Name | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `key` | string or integer | Yes | - | System key, one A-Z/0-9 key, or HarmonyOS KeyCode |
-| `modifiers` | array of `Ctrl`, `Alt`, `Shift` | No | `null` | Zero to two shortcut modifiers |
+| `key` | string or integer | Yes | - | Any official OpenHarmony InputKit `KEYCODE_*` name or numeric value |
+| `modifiers` | array of `Ctrl`, `Alt`, `Shift`, `Meta` | No | `null` | Zero to two unique shortcut modifiers |
 | `device_id` | string | No | auto-resolve | Target device |
 | `hdc_server` | string | No | `null` | Optional wireless HDC endpoint |
 
@@ -545,9 +552,23 @@ Rules:
 
 - Use `input_text` for strings such as `"hello"` or `"中文"`.
 - Use `press_key` for one system key or one shortcut.
-- `key` accepts system keys such as `Home`, `Back`, `Power`, `Enter`, and `VolumeDown`.
-- A single letter `A`-`Z`, digit `0`-`9`, or numeric HarmonyOS KeyCode is also accepted.
+- All 354 key definitions from OpenHarmony InputKit `oh_key_code.h` are mapped.
+- The `KEYCODE_` prefix, case, and separators are optional. For example,
+  `KEYCODE_PAGE_UP`, `PageUp`, `page_up`, and `page-up` all resolve to 2068.
+- A single letter `A`-`Z`, digit `0`-`9`, or an official numeric KeyCode is accepted.
+- `Backspace` maps to `KEYCODE_DEL` (2055); `Delete` maps to
+  `KEYCODE_FORWARD_DEL` (2071). The exact official name `DEL` still means 2055.
+- `Home` is the system Home key (1). Use `MoveHome`/`CursorHome` (2081) and
+  `MoveEnd`/`End` (2082) for caret movement.
+- Unknown numeric values are rejected before an HDC command is sent.
 - Modifiers are sent with the primary key as one HarmonyOS `keyEvent`.
+
+Key result fields:
+
+- `key`: canonical official name, such as `KEYCODE_V`
+- `key_code`: numeric code for the primary key
+- `modifiers`: normalized modifier names
+- `event_key_codes`: exact ordered codes sent in the single `keyEvent`
 
 Examples:
 
@@ -560,7 +581,11 @@ Examples:
 ```
 
 ```json
-{"key": 2054}
+{"key": "KEYCODE_F24"}
+```
+
+```json
+{"key": "Delete"}
 ```
 
 Raw shell fragments such as `"2072 2038"` are rejected.
@@ -572,7 +597,7 @@ Common errors:
 - `INVALID_MODIFIER_COUNT`
 - `DUPLICATE_MODIFIER`
 
-### `find_element`
+### `find_elements`
 
 Purpose: search for UI elements and return reusable handles.
 
@@ -710,7 +735,7 @@ Key result fields:
 - `count`
 - `total_count`
 
-### `wait_element`
+### `wait_for_element`
 
 Purpose: wait for an element to become present or disappear.
 

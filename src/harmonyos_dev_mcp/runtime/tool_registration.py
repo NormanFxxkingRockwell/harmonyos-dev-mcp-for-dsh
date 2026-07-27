@@ -8,6 +8,8 @@ from loguru import logger
 
 from harmonyos_dev_mcp._common.server.base import _wrap_with_error_handler
 
+from harmonyos_dev_mcp._common.tools.output_schema import build_output_schema
+
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -26,15 +28,15 @@ def get_tool_specs() -> tuple[ToolSpec, ...]:
         ToolSpec(build.uninstall_app, "build"),
         ToolSpec(e2e.get_ui_tree, "e2e"),
         ToolSpec(e2e.list_windows, "e2e"),
-        ToolSpec(e2e.wait_element, "e2e"),
+        ToolSpec(e2e.wait_for_element, "e2e"),
         ToolSpec(general.list_devices, "general"),
         ToolSpec(general.query_package, "general"),
-        ToolSpec(ui.click_element, "ui"),
-        ToolSpec(ui.long_press_element, "ui"),
+        ToolSpec(ui.click, "ui"),
+        ToolSpec(ui.long_press, "ui"),
         ToolSpec(ui.swipe, "ui"),
         ToolSpec(ui.input_text, "ui"),
         ToolSpec(ui.press_key, "ui"),
-        ToolSpec(ui.find_element, "ui"),
+        ToolSpec(ui.find_elements, "ui"),
         ToolSpec(ui.screenshot, "ui"),
         ToolSpec(ui.drag, "ui"),
         ToolSpec(logs_query, "general"),
@@ -63,7 +65,7 @@ def register_tools(
         func = spec.func
         if enable_error_handler:
             func = _wrap_with_error_handler(func, on_error)
-        server.tool(output_schema=None)(func)
+        server.tool(output_schema=build_output_schema(func))(func)
         registered_tools.append(func)
 
     registered = tuple(registered_tools)

@@ -7,7 +7,7 @@ mcp = create_app()
 
 
 def main() -> None:
-    run_app(create_app())
+    run_app(mcp)
 
 
 if __name__ == "__main__":
