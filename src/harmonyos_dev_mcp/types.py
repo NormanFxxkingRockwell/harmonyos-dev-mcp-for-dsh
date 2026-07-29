@@ -109,6 +109,8 @@ class UIElement(TypedDict, total=False):
     bounds: dict
     clickable: bool
     visible: bool
+    enabled: bool
+    focused: bool
     compid: str
     depth: int
     element_handle: dict
@@ -147,6 +149,8 @@ class ClickResult(BaseResult, total=False):
     resolved_via: TargetResolution
     handle_refreshed: bool
     element_handle: Optional[dict]
+    dispatched: bool
+    effect_verified: bool
     message: str
 
 
@@ -156,6 +160,8 @@ class LongPressResult(BaseResult, total=False):
     resolved_via: TargetResolution
     handle_refreshed: bool
     element_handle: Optional[dict]
+    dispatched: bool
+    effect_verified: bool
     message: str
 
 
@@ -188,6 +194,12 @@ class InputTextResult(BaseResult, total=False):
     input_strategy: str
     dispatched: bool
     verified: bool
+    focus_dispatched: bool
+    focus_verified: bool
+    focus_observations: int
+    focused: Optional[bool]
+    window_foreground: Optional[bool]
+    foreground_window_id: Optional[int]
     clipboard_modified: bool
     cleanup_performed: bool
     actual_text: Optional[str]
@@ -233,6 +245,7 @@ class WindowInfo(TypedDict):
     bundle_name: str
     bundle_name_resolved: bool
     is_visible: bool
+    is_foreground: bool
     bounds: Bounds
 
 

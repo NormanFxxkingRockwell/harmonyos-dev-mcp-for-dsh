@@ -264,6 +264,10 @@ class UiTestWrapper:
                 "error": focus_result.get("error", "failed to focus input field"),
             }
 
+        return self.input_focused_text(device_id, x, y, text)
+
+    def input_focused_text(self, device_id: str, x: int, y: int, text: str) -> Dict[str, Any]:
+        """Append text to an input whose focus was already verified."""
         move_end_result = self.press_key(device_id, int(KeyCode.MOVE_END))
         if not move_end_result.get("success", False):
             return {
@@ -319,6 +323,10 @@ class UiTestWrapper:
                 "error": focus_result.get("error", "failed to focus input field"),
             }
 
+        return self.replace_focused_text(device_id, x, y, text)
+
+    def replace_focused_text(self, device_id: str, x: int, y: int, text: str) -> Dict[str, Any]:
+        """Replace text in an input whose focus was already verified."""
         select_result = self.send_key_event(
             device_id,
             [int(KeyCode.CTRL_LEFT), int(KeyCode.A)],
@@ -615,6 +623,8 @@ class UiTestWrapper:
                         'y': center_y,  # 屏幕绝对坐标
                         'visible': props.get('visible', False),
                         'clickable': props.get('clickable', False),
+                        'enabled': props.get('enabled', True),
+                        'focused': props.get('focused', False),
                         'depth': depth
                     }
 

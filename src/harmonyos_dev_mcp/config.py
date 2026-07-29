@@ -25,6 +25,7 @@ class Config(ConfigBase):
 
     UI_OPERATION_TIMEOUT: int = 5
     UI_TREE_TIMEOUT: int = 10
+    INPUT_FOCUS_TIMEOUT_MS: int = 5000
     INPUT_VERIFY_TIMEOUT_MS: int = 15000
     BUILD_TIMEOUT: int = 600
     INSTALL_TIMEOUT: int = 120
@@ -271,6 +272,9 @@ class Config(ConfigBase):
 
         cls.UI_OPERATION_TIMEOUT = int(os.getenv("UI_OPERATION_TIMEOUT", str(cls.UI_OPERATION_TIMEOUT)))
         cls.UI_TREE_TIMEOUT = int(os.getenv("UI_TREE_TIMEOUT", str(cls.UI_TREE_TIMEOUT)))
+        cls.INPUT_FOCUS_TIMEOUT_MS = int(
+            os.getenv("INPUT_FOCUS_TIMEOUT_MS", str(cls.INPUT_FOCUS_TIMEOUT_MS))
+        )
         cls.INPUT_VERIFY_TIMEOUT_MS = int(
             os.getenv("INPUT_VERIFY_TIMEOUT_MS", str(cls.INPUT_VERIFY_TIMEOUT_MS))
         )

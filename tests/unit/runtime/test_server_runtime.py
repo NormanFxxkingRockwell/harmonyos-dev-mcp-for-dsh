@@ -199,6 +199,12 @@ async def test_all_tools_expose_agent_facing_descriptions_and_input_contracts(mo
         "input_strategy",
         "dispatched",
         "verified",
+        "focus_dispatched",
+        "focus_verified",
+        "focus_observations",
+        "focused",
+        "window_foreground",
+        "foreground_window_id",
         "clipboard_modified",
         "actual_text",
         "stage",
@@ -206,6 +212,10 @@ async def test_all_tools_expose_agent_facing_descriptions_and_input_contracts(mo
     assert "find_element" not in tool_map
     assert "wait_element" not in tool_map
     assert tool_map["click"].inputSchema["properties"]["count"]["enum"] == [1, 2]
+    assert "effect_verified" in tool_map["click"].description
+    click_result_schema = tool_map["click"].outputSchema["properties"]["result"]["anyOf"][0]
+    assert set(click_result_schema["properties"]) >= {"dispatched", "effect_verified"}
+    assert "effect_verified" in tool_map["long_press"].description
     assert "click_element" not in tool_map
     assert "long_press_element" not in tool_map
     handle_schema = tool_map["input_text"].inputSchema["properties"]["element_handle"]

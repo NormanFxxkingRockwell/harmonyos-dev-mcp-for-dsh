@@ -99,6 +99,23 @@ def test_replace_text_with_empty_value_only_clears():
     ]
 
 
+def test_focused_text_helpers_do_not_click_again():
+    hdc = _RecordingHdc()
+    wrapper = UiTestWrapper(hdc)
+
+    append_result = wrapper.input_focused_text("device_001", 10, 20, "42")
+    replace_result = wrapper.replace_focused_text("device_001", 10, 20, "7")
+
+    assert append_result["success"] is True
+    assert replace_result["success"] is True
+    assert [command for _, command, _ in hdc.commands] == [
+        "uitest uiInput keyEvent 2082",
+        f"uitest uiInput text {shlex.quote('42')}",
+        "uitest uiInput keyEvent 2072 2017",
+        f"uitest uiInput text {shlex.quote('7')}",
+    ]
+
+
 def test_find_element_in_tree_filters_global_dump_by_window_id():
     wrapper = UiTestWrapper(_RecordingHdc())
     tree = {
@@ -113,6 +130,9 @@ def test_find_element_in_tree_filters_global_dump_by_window_id():
                     "top": 20,
                     "width": 100,
                     "height": 40,
+                    "visible": True,
+                    "enabled": True,
+                    "focused": True,
                 },
                 "children": [],
             },
@@ -140,3 +160,5 @@ def test_find_element_in_tree_filters_global_dump_by_window_id():
 
     assert [element["id"] for element in elements] == ["security"]
     assert elements[0]["window_id"] == 92
+    assert elements[0]["enabled"] is True
+    assert elements[0]["focused"] is True

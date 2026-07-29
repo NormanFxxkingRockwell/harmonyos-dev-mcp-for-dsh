@@ -84,6 +84,9 @@ def mock_hdc() -> Generator[MagicMock, None, None]:
                 "window_id": 1,
                 "bundle_name": "com.example.app",
                 "is_visible": True,
+                "display_id": 0,
+                "type": 1,
+                "zord": 100,
                 "rect": {"x": 10, "y": 20, "w": 300, "h": 400},
             }
         ],
@@ -198,6 +201,13 @@ def mock_ui_operations() -> Generator[MagicMock, None, None]:
         "message": "滑动成功",
     }
     mock.input_text.return_value = {"success": True, "text": "ok", "x": 100, "y": 200, "message": "文本输入成功"}
+    mock.input_focused_text.return_value = {
+        "success": True,
+        "text": "ok",
+        "x": 100,
+        "y": 200,
+        "message": "text input dispatched",
+    }
     mock.replace_text.return_value = {
         "success": True,
         "text": "ok",
@@ -207,6 +217,13 @@ def mock_ui_operations() -> Generator[MagicMock, None, None]:
     }
     mock.press_key.return_value = {"success": True, "key": "Home", "message": "按键成功"}
     mock.send_key_event.return_value = {"success": True, "keys": [2072, 2038], "message": "组合键成功"}
+    mock.replace_focused_text.return_value = {
+        "success": True,
+        "text": "ok",
+        "x": 100,
+        "y": 200,
+        "message": "text replacement dispatched",
+    }
     mock.find_element.return_value = {
         "success": True,
         "window_id": 1,
@@ -224,6 +241,8 @@ def mock_ui_operations() -> Generator[MagicMock, None, None]:
                 "type": "Button",
                 "visible": True,
                 "clickable": True,
+                "enabled": True,
+                "focused": True,
                 "depth": 2,
             }
         ],

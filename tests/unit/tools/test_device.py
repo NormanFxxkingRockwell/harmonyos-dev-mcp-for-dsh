@@ -110,6 +110,54 @@ class TestUiTree:
         window = sc["result"]["windows"][0]
         assert window["bounds"] == {"left": 10, "top": 20, "right": 310, "bottom": 420}
         assert window["bundle_name_resolved"] is True
+        assert window["is_foreground"] is True
+
+    @pytest.mark.asyncio
+    async def test_list_windows_marks_highest_application_z_order_as_foreground(
+        self, mock_hdc: MagicMock, unwrap_result
+    ):
+        from harmonyos_dev_mcp.tools import e2e
+
+        mock_hdc.get_window_list.return_value = {
+            "success": True,
+            "count": 3,
+            "windows": [
+                {
+                    "window_id": 1,
+                    "bundle_name": "com.example.back",
+                    "is_visible": True,
+                    "display_id": 0,
+                    "type": 1,
+                    "zord": 100,
+                    "rect": {"x": 0, "y": 0, "w": 100, "h": 100},
+                },
+                {
+                    "window_id": 2,
+                    "bundle_name": "com.example.front",
+                    "is_visible": True,
+                    "display_id": 0,
+                    "type": 1,
+                    "zord": 101,
+                    "rect": {"x": 0, "y": 0, "w": 100, "h": 100},
+                },
+                {
+                    "window_id": 3,
+                    "bundle_name": "com.ohos.sceneboard",
+                    "is_visible": True,
+                    "display_id": 0,
+                    "type": 2109,
+                    "zord": 4000,
+                    "rect": {"x": 0, "y": 0, "w": 100, "h": 100},
+                },
+            ],
+        }
+
+        sc = unwrap_result(await e2e.list_windows())
+
+        by_id = {window["window_id"]: window for window in sc["result"]["windows"]}
+        assert by_id[1]["is_foreground"] is False
+        assert by_id[2]["is_foreground"] is True
+        assert by_id[3]["is_foreground"] is False
 
     @pytest.mark.asyncio
     async def test_list_windows_filters_by_bundle_name(self, mock_hdc: MagicMock, unwrap_result):

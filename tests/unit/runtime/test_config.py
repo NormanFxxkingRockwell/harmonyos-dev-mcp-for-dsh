@@ -229,10 +229,12 @@ class TestConfigInit:
             "NODE_PATH": Config.NODE_PATH,
             "BUILD_TIMEOUT": Config.BUILD_TIMEOUT,
             "INSTALL_TIMEOUT": Config.INSTALL_TIMEOUT,
+            "INPUT_FOCUS_TIMEOUT_MS": Config.INPUT_FOCUS_TIMEOUT_MS,
         }
         monkeypatch.setattr("harmonyos_dev_mcp.config.platform.system", lambda: "Windows")
         monkeypatch.setenv("BUILD_TIMEOUT", "321")
         monkeypatch.setenv("INSTALL_TIMEOUT", "123")
+        monkeypatch.setenv("INPUT_FOCUS_TIMEOUT_MS", "4567")
         monkeypatch.setenv("HARMONYOS_HDC_SERVER", "10.0.0.8:8710")
         monkeypatch.delenv("DEVECO_STUDIO_PATH", raising=False)
         monkeypatch.delenv("HARMONYOS_SDK_PATH", raising=False)
@@ -271,6 +273,7 @@ class TestConfigInit:
             assert Config.HILOGTOOL_PATH == r"C:\DevEco\sdk\toolchains\hilogtool.exe"
             assert Config.BUILD_TIMEOUT == 321
             assert Config.INSTALL_TIMEOUT == 123
+            assert Config.INPUT_FOCUS_TIMEOUT_MS == 4567
             assert Config.HARMONYOS_HDC_SERVER == "10.0.0.8:8710"
         finally:
             for key, value in original_values.items():

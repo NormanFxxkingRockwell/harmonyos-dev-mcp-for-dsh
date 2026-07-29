@@ -22,6 +22,8 @@ The package exposes 18 MCP tools:
   text without changing the active input method.
 - Handle and unambiguous search targets are observed until their exact final
   value is visible or the verification deadline expires.
+- Reliable text input verifies both foreground-window state and element focus
+  before any text or shortcut is dispatched.
 - UI mutations are serialized per HDC endpoint and device, while separate
   devices remain concurrent.
 - `press_key` distinguishes event dispatch from application-level effect
@@ -69,6 +71,10 @@ UI tools:
 names are case- and separator-insensitive, so `KEYCODE_PAGE_UP`, `PageUp`, and
 `page-up` are equivalent. Use `input_text` for strings and Chinese text.
 
+`click` and `long_press` report `dispatched=true, effect_verified=false` when
+the device accepts the command. This confirms delivery, not an application
+state change.
+
 For reliable text entry, call `find_elements` or `wait_for_element` first and
 pass the returned `element_handle` to `input_text`. A search target is also
 verified when it resolves to exactly one element. Coordinate mode cannot read
@@ -81,9 +87,15 @@ sentinel-assisted paste for other ASCII text. The sentinel is removed only
 after the exact sentinel-bearing value is observed. Paste strategies may
 replace the device clipboard; check `clipboard_modified` in the result.
 
-Input verification uses a deadline rather than a fixed delay. Set
-`INPUT_VERIFY_TIMEOUT_MS` to change the default `15000ms` budget. Successful
-observations return immediately. Password fields and some Web/Chromium
+Handle and search modes first click the target, then observe both
+`focused=true` and a foreground target window before dispatching text. Set
+`INPUT_FOCUS_TIMEOUT_MS` to change the default `5000ms` focus budget. A
+background or occluded target that does not acquire focus returns
+`INPUT_FOCUS_TIMEOUT` without dispatching text.
+
+Input verification also uses a deadline rather than a fixed delay. Set
+`INPUT_VERIFY_TIMEOUT_MS` to change the default `15000ms` value budget.
+Successful observations return immediately. Password fields and some Web/Chromium
 accessibility fields may not expose or accept deterministic text operations;
 these return a verification error with the last observed `actual_text` instead
 of claiming success. A failed write may still leave partial text in the target.

@@ -368,7 +368,7 @@ Common errors:
 
 ### `click`
 
-Purpose: click a target once or twice.
+Purpose: dispatch one or two clicks to a target.
 
 Parameters:
 
@@ -390,6 +390,8 @@ Rules:
 - Provide one mode only: coordinates, `element_handle`, or search criteria.
 - Coordinates cannot be combined with `element_handle` or search criteria.
 - `element_handle` may be refreshed internally through `lookup_hint` if stale.
+- A successful result confirms command delivery only. It does not infer the
+  resulting application behavior.
 
 Key result fields:
 
@@ -411,11 +413,13 @@ Common errors:
 
 ### `long_press`
 
-Purpose: long press a target.
+Purpose: dispatch a long press to a target.
 
 Parameters:
 
 Same resolution modes as `click`, except no `count`.
+
+Successful delivery returns `dispatched: true, effect_verified: false`.
 
 Common errors:
 
@@ -490,6 +494,13 @@ Rules:
 - Use `append` only when the existing value must be preserved; the caret is moved to the end first.
 - `input_text` does not press Shift or otherwise change the active IME.
 - For reliable automation, call `find_elements` or `wait_for_element` first and pass its `element_handle`.
+- Handle and search modes click the target and then observe both
+  `focused: true` and a foreground target window before dispatching any text or
+  shortcut. Focus acquisition has a `5000ms` default deadline configurable via
+  `INPUT_FOCUS_TIMEOUT_MS`; it adds no fixed delay.
+- If foreground focus is not acquired, the tool returns `INPUT_FOCUS_TIMEOUT`
+  with `dispatched: false`. `focus_dispatched` separately reports whether the
+  focus click was delivered.
 - Handle mode observes the element until its exact final value is visible or
   the `INPUT_VERIFY_TIMEOUT_MS` deadline expires.
 - Search mode must match exactly one element. It is converted to a handle and
@@ -523,10 +534,18 @@ Key result fields:
 - `mode`
 - `input_strategy`
 - `dispatched`
+- `focus_dispatched`
+- `focus_verified`
+- `focus_observations`
+- `focused`
+- `window_foreground`
+- `foreground_window_id`
 - `clipboard_modified`
 - `resolved_via`
 - `handle_refreshed`
 - `element_handle`
+- `dispatched`
+- `effect_verified` (always `false`)
 - `verified`
 - `actual_text`
 - `cleanup_performed`
@@ -543,6 +562,9 @@ Common errors:
 - `ELEMENT_NOT_FOUND`
 - `AMBIGUOUS_ELEMENT_MATCH`
 - `TEXT_NOT_READABLE`
+- `INPUT_FOCUS_DISPATCH_FAILED`
+- `INPUT_FOCUS_TIMEOUT`
+- `INPUT_TARGET_NOT_INTERACTABLE`
 - `TEXT_CLEANUP_FAILED`
 - `TEXT_VERIFICATION_TIMEOUT`
 
@@ -772,6 +794,10 @@ Key result fields:
 - `windows`
 - `count`
 - `total_count`
+
+Each application window includes `is_foreground`. It is true for the visible
+application window with the highest z-order on its display. System SceneBoard
+layers are not treated as application foreground windows.
 
 ### `wait_for_element`
 

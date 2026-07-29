@@ -93,6 +93,22 @@ def _with_success_message(raw: Any, message: str) -> Any:
     return normalized
 
 
+def _with_unverified_dispatch(result: dict, message: str) -> dict:
+    """Describe command delivery without claiming an application-level effect."""
+    result_data = dict(result.get("result") or {})
+    dispatched = bool(result.get("ok", False))
+    result_data.update(
+        {
+            "dispatched": dispatched,
+            "effect_verified": False,
+        }
+    )
+    if dispatched:
+        result_data["message"] = message
+    result["result"] = result_data
+    return result
+
+
 def _is_close(a: Any, b: Any, tolerance: int = 12) -> bool:
     if a is None or b is None:
         return False
@@ -165,6 +181,73 @@ def _resolved_result(
     }
 
 
+def _foreground_window_state(
+    windows: list[Dict[str, Any]],
+    target_window_id: Any,
+) -> Dict[str, Any]:
+    """Return a conservative foreground classification for one target window."""
+    target = next((window for window in windows if window.get("window_id") == target_window_id), None)
+    if target is None:
+        return {
+            "window_foreground": None,
+            "foreground_window_id": None,
+            "target_window": None,
+        }
+
+    display_id = target.get("display_id", 0)
+    target_type = target.get("type")
+    candidate_types = {1}
+    if target_type is not None:
+        candidate_types.add(target_type)
+
+    candidates = [
+        window
+        for window in windows
+        if window.get("is_visible")
+        and window.get("display_id", 0) == display_id
+        and (window.get("type") in candidate_types or window.get("window_id") == target_window_id)
+    ]
+    candidates_with_zord = [window for window in candidates if window.get("zord") is not None]
+    if candidates_with_zord:
+        foreground = max(candidates_with_zord, key=lambda window: int(window.get("zord", -1)))
+        foreground_window_id = foreground.get("window_id")
+        return {
+            "window_foreground": foreground_window_id == target_window_id,
+            "foreground_window_id": foreground_window_id,
+            "target_window": target,
+        }
+
+    if len(candidates) == 1 and candidates[0].get("window_id") == target_window_id:
+        return {
+            "window_foreground": True,
+            "foreground_window_id": target_window_id,
+            "target_window": target,
+        }
+
+    return {
+        "window_foreground": None,
+        "foreground_window_id": None,
+        "target_window": target,
+    }
+
+
+async def _read_foreground_window_state(device_id: str, target_window_id: Any) -> Dict[str, Any]:
+    hdc = get_hdc()
+    raw = await asyncio.to_thread(hdc.get_window_list, device_id)
+    if not isinstance(raw, dict) or not raw.get("success", False):
+        return {
+            "window_foreground": None,
+            "foreground_window_id": None,
+            "target_window": None,
+            "window_error": (
+                raw.get("error", "failed to read window state")
+                if isinstance(raw, dict)
+                else "failed to read window state"
+            ),
+        }
+    return _foreground_window_state(raw.get("windows", []), target_window_id)
+
+
 async def _perform_resolved_action(
     *,
     action_fn,
@@ -186,6 +269,113 @@ async def _perform_resolved_action(
         default_code=default_code,
         default_detail=default_detail,
         default_result=default_result,
+    )
+
+
+async def _perform_unverified_action(
+    *,
+    dispatch_message: str,
+    **kwargs,
+) -> dict:
+    result = await _perform_resolved_action(**kwargs)
+    return _with_unverified_dispatch(result, dispatch_message)
+
+
+async def _acquire_input_focus(
+    *,
+    device_id: str,
+    resolved: Dict[str, Any],
+    default_result: Dict[str, Any],
+) -> Tuple[bool, Dict[str, Any]]:
+    """Click a handled input and observe focus plus foreground before typing."""
+    ui_ops = get_ui_operations()
+    focus_raw = await asyncio.to_thread(ui_ops.click, device_id, resolved["x"], resolved["y"])
+    focus_dispatched = bool(isinstance(focus_raw, dict) and focus_raw.get("success", False))
+    focus_result = {
+        **default_result,
+        **resolved,
+        "focus_dispatched": focus_dispatched,
+        "focus_verified": False,
+        "focus_observations": 0,
+        "focused": None,
+        "window_foreground": None,
+        "foreground_window_id": None,
+        "stage": "focus",
+    }
+    if not focus_dispatched:
+        return False, error_result(
+            "INPUT_FOCUS_DISPATCH_FAILED",
+            (
+                focus_raw.get("error") or focus_raw.get("message") or "failed to dispatch focus click"
+                if isinstance(focus_raw, dict)
+                else "failed to dispatch focus click"
+            ),
+            result=focus_result,
+        )
+
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    timeout_ms = max(0, Config.INPUT_FOCUS_TIMEOUT_MS)
+    deadline = started + timeout_ms / 1000
+    active_handle = dict(resolved.get("element_handle") or {})
+    initial_resolution = resolved.get("resolved_via")
+    last_resolution_error: Optional[dict] = None
+    window_error: Optional[str] = None
+
+    while loop.time() < deadline:
+        verified_ok, verified = await _resolve_handle_coords(device_id, active_handle)
+        focus_result["focus_observations"] += 1
+        if not verified_ok:
+            last_resolution_error = verified
+            continue
+
+        active_handle = dict(verified.get("element_handle") or active_handle)
+        focus_result.update(verified)
+        focus_result["resolved_via"] = initial_resolution
+        focus_result["element_handle"] = active_handle
+        focus_result["focused"] = active_handle.get("focused")
+
+        if active_handle.get("enabled") is False or active_handle.get("visible") is False:
+            return False, error_result(
+                "INPUT_TARGET_NOT_INTERACTABLE",
+                "input target is disabled or not visible",
+                result=focus_result,
+            )
+
+        window_state = await _read_foreground_window_state(
+            device_id,
+            active_handle.get("window_id"),
+        )
+        focus_result.update(
+            {
+                "window_foreground": window_state.get("window_foreground"),
+                "foreground_window_id": window_state.get("foreground_window_id"),
+            }
+        )
+        window_error = window_state.get("window_error")
+        if active_handle.get("focused") is True and window_state.get("window_foreground") is True:
+            focus_result.update(
+                {
+                    "focus_verified": True,
+                    "stage": "focused",
+                    "elapsed_ms": int((loop.time() - started) * 1000),
+                }
+            )
+            return True, focus_result
+
+    detail = (
+        "focus click was dispatched, but the target element did not become focused "
+        "in the foreground application window before the deadline"
+    )
+    if last_resolution_error and focus_result.get("focused") is None:
+        detail = "focus click was dispatched, but the target element could not be re-read before the deadline"
+    elif window_error and focus_result.get("window_foreground") is None:
+        detail = f"focus click was dispatched, but foreground window state could not be read: {window_error}"
+    focus_result["elapsed_ms"] = int((loop.time() - started) * 1000)
+    return False, error_result(
+        "INPUT_FOCUS_TIMEOUT",
+        detail,
+        result=focus_result,
     )
 
 
@@ -419,6 +609,7 @@ async def _verify_input_handle(
     observations = 0
     cleanup_pending = sentinel is not None
     cleanup_performed = False
+    cleanup_blocked_by_focus = False
     last_resolution_error: Optional[dict] = None
 
     while loop.time() < deadline:
@@ -452,6 +643,16 @@ async def _verify_input_handle(
             return action_result
 
         if cleanup_pending and actual_text == f"{expected_text}{sentinel}":
+            cleanup_window_state = await _read_foreground_window_state(
+                device_id,
+                active_handle.get("window_id"),
+            )
+            if (
+                active_handle.get("focused") is not True
+                or cleanup_window_state.get("window_foreground") is not True
+            ):
+                cleanup_blocked_by_focus = True
+                continue
             cleanup_raw = await asyncio.to_thread(
                 get_ui_operations().press_key,
                 device_id,
@@ -492,6 +693,11 @@ async def _verify_input_handle(
         f"input was dispatched, but UI text did not become {expected_text!r} "
         f"within {timeout_ms}ms; last value was {actual_text!r}"
     )
+    if cleanup_blocked_by_focus:
+        detail = (
+            "the sentinel-bearing value was observed, but cleanup was not dispatched "
+            "because the target no longer had verified foreground focus"
+        )
     if observations and last_resolution_error and actual_text is None:
         detail = "input was dispatched, but the target element could not be re-read before the verification deadline"
     return error_result(
@@ -517,7 +723,12 @@ async def click(
     count: Literal[1, 2] = 1,
     bundle_name: Optional[str] = None,
 ) -> ClickResult:
-    """Click a UI target once or twice by coordinates, handle, or search criteria."""
+    """
+    Dispatch one or two clicks to a UI target.
+
+    ``dispatched=true`` confirms command delivery. ``effect_verified`` remains
+    false because a generic click cannot prove an application-level outcome.
+    """
     has_coords = x is not None and y is not None
     has_handle = element_handle is not None
     has_search = bool(text or element_type or element_id)
@@ -538,10 +749,10 @@ async def click(
 
     ui_ops = get_ui_operations()
     click_fn = ui_ops.double_click if count == 2 else ui_ops.click
-    success_message = "double click succeeded" if count == 2 else "click succeeded"
+    dispatch_message = "double click dispatched" if count == 2 else "click dispatched"
 
     if has_coords:
-        return await _perform_resolved_action(
+        return await _perform_unverified_action(
             action_fn=click_fn,
             device_id=device_id,
             resolved={
@@ -551,7 +762,8 @@ async def click(
                 "handle_refreshed": False,
                 "element_handle": None,
             },
-            success_message=success_message,
+            success_message=dispatch_message,
+            dispatch_message=dispatch_message,
             default_code="CLICK_ERROR",
             default_detail="click failed",
             extra_result={"count": count},
@@ -561,11 +773,12 @@ async def click(
         ok, resolved = await _resolve_handle_coords(device_id, element_handle)
         if not ok:
             return resolved
-        return await _perform_resolved_action(
+        return await _perform_unverified_action(
             action_fn=click_fn,
             device_id=device_id,
             resolved=resolved,
-            success_message=success_message,
+            success_message=dispatch_message,
+            dispatch_message=dispatch_message,
             default_code="CLICK_ERROR",
             default_detail="click failed",
             extra_result={"count": count},
@@ -582,7 +795,7 @@ async def click(
         if not ok:
             return coords
         ex, ey = coords
-        return await _perform_resolved_action(
+        return await _perform_unverified_action(
             action_fn=click_fn,
             device_id=device_id,
             resolved={
@@ -592,7 +805,8 @@ async def click(
                 "handle_refreshed": False,
                 "element_handle": None,
             },
-            success_message=success_message,
+            success_message=dispatch_message,
+            dispatch_message=dispatch_message,
             default_code="CLICK_ERROR",
             default_detail="click failed",
             extra_result={"count": count},
@@ -620,7 +834,12 @@ async def long_press(
     element_id: Optional[str] = None,
     bundle_name: Optional[str] = None,
 ) -> LongPressResult:
-    """Long-press a UI target by coordinates, handle, or search criteria."""
+    """
+    Dispatch a long press to a UI target.
+
+    ``dispatched=true`` confirms command delivery. ``effect_verified`` remains
+    false because a generic long press cannot prove an application-level outcome.
+    """
     ui_ops = get_ui_operations()
 
     if x is not None and y is not None and (element_handle is not None or text or element_type or element_id):
@@ -631,7 +850,7 @@ async def long_press(
         )
 
     if x is not None and y is not None:
-        return await _perform_resolved_action(
+        return await _perform_unverified_action(
             action_fn=ui_ops.long_click,
             device_id=device_id,
             resolved={
@@ -641,7 +860,8 @@ async def long_press(
                 "handle_refreshed": False,
                 "element_handle": None,
             },
-            success_message="long press succeeded",
+            success_message="long press dispatched",
+            dispatch_message="long press dispatched",
             default_code="LONG_PRESS_ERROR",
             default_detail="long press failed",
         )
@@ -650,11 +870,12 @@ async def long_press(
         ok, resolved = await _resolve_handle_coords(device_id, element_handle)
         if not ok:
             return resolved
-        return await _perform_resolved_action(
+        return await _perform_unverified_action(
             action_fn=ui_ops.long_click,
             device_id=device_id,
             resolved=resolved,
-            success_message="long press succeeded",
+            success_message="long press dispatched",
+            dispatch_message="long press dispatched",
             default_code="LONG_PRESS_ERROR",
             default_detail="long press failed",
         )
@@ -670,7 +891,7 @@ async def long_press(
         if not ok:
             return coords
         ex, ey = coords
-        return await _perform_resolved_action(
+        return await _perform_unverified_action(
             action_fn=ui_ops.long_click,
             device_id=device_id,
             resolved={
@@ -680,7 +901,8 @@ async def long_press(
                 "handle_refreshed": False,
                 "element_handle": None,
             },
-            success_message="long press succeeded",
+            success_message="long press dispatched",
+            dispatch_message="long press dispatched",
             default_code="LONG_PRESS_ERROR",
             default_detail="long press failed",
         )
@@ -768,8 +990,8 @@ async def input_text(
     Set an input field to UTF-8 text, or append at the end when mode is ``append``.
 
     For reliable automation, first call find_elements/wait_for_element and pass its
-    element_handle; handle mode re-reads the field and verifies the final text.
-    Search criteria must resolve to one element and are then verified like handles.
+    element_handle. Handle and unique-search modes verify foreground focus before
+    dispatching text, then re-read the field and verify the exact final value.
     Coordinates cannot be re-read and therefore remain best-effort with
     verified=false. Replace mode is the default, and an empty replacement clears
     the field.
@@ -783,6 +1005,12 @@ async def input_text(
         "mode": mode,
         "dispatched": False,
         "verified": False,
+        "focus_dispatched": False,
+        "focus_verified": False,
+        "focus_observations": 0,
+        "focused": None,
+        "window_foreground": None,
+        "foreground_window_id": None,
     }
 
     if text is None:
@@ -893,6 +1121,18 @@ async def input_text(
         )
 
     assert resolved is not None
+    focus_ok, focus_result = await _acquire_input_focus(
+        device_id=device_id,
+        resolved=resolved,
+        default_result=default_result,
+    )
+    if not focus_ok:
+        return focus_result
+
+    resolved = {
+        **resolved,
+        **focus_result,
+    }
     resolved_handle = dict(resolved.get("element_handle") or {})
     before_text = resolved_handle.get("text")
     if mode == "append" and not isinstance(before_text, str):
@@ -907,9 +1147,14 @@ async def input_text(
             },
         )
     expected_text = text if mode == "replace" else f"{before_text}{text}"
+    focused_action_fn = (
+        ui_ops.input_focused_text
+        if mode == "append"
+        else ui_ops.replace_focused_text
+    )
 
     action_result = await _perform_resolved_action(
-        action_fn=action_fn,
+        action_fn=focused_action_fn,
         device_id=device_id,
         resolved=resolved,
         success_message="input text dispatched",

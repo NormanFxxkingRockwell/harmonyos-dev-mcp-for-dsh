@@ -18,4 +18,20 @@ def normalize_window(window: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def normalize_windows(windows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
-    return [normalize_window(window) for window in windows]
+    normalized = [normalize_window(window) for window in windows]
+    foreground_by_display: dict[int, int] = {}
+
+    for index, window in enumerate(normalized):
+        if not window.get("is_visible") or window.get("type") != 1:
+            continue
+        display_id = int(window.get("display_id", 0))
+        zord = int(window.get("zord", -1))
+        current_index = foreground_by_display.get(display_id)
+        if current_index is None or zord > int(normalized[current_index].get("zord", -1)):
+            foreground_by_display[display_id] = index
+
+    for index, window in enumerate(normalized):
+        display_id = int(window.get("display_id", 0))
+        window["is_foreground"] = foreground_by_display.get(display_id) == index
+
+    return normalized
