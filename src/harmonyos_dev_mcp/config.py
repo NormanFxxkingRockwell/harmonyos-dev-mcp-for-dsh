@@ -25,6 +25,7 @@ class Config(ConfigBase):
 
     UI_OPERATION_TIMEOUT: int = 5
     UI_TREE_TIMEOUT: int = 10
+    INPUT_VERIFY_TIMEOUT_MS: int = 15000
     BUILD_TIMEOUT: int = 600
     INSTALL_TIMEOUT: int = 120
 
@@ -270,6 +271,9 @@ class Config(ConfigBase):
 
         cls.UI_OPERATION_TIMEOUT = int(os.getenv("UI_OPERATION_TIMEOUT", str(cls.UI_OPERATION_TIMEOUT)))
         cls.UI_TREE_TIMEOUT = int(os.getenv("UI_TREE_TIMEOUT", str(cls.UI_TREE_TIMEOUT)))
+        cls.INPUT_VERIFY_TIMEOUT_MS = int(
+            os.getenv("INPUT_VERIFY_TIMEOUT_MS", str(cls.INPUT_VERIFY_TIMEOUT_MS))
+        )
         cls.BUILD_TIMEOUT = int(os.getenv("BUILD_TIMEOUT", str(cls.BUILD_TIMEOUT)))
         cls.INSTALL_TIMEOUT = int(os.getenv("INSTALL_TIMEOUT", str(cls.INSTALL_TIMEOUT)))
 

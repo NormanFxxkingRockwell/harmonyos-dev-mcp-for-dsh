@@ -57,8 +57,6 @@ def test_input_text_quotes_utf8_and_shell_characters():
         "uitest uiInput click 10 20",
         "uitest uiInput keyEvent 2082",
         f"uitest uiInput text {shlex.quote(text)}",
-        "uitest uiInput keyEvent 2047",
-        "uitest uiInput keyEvent 2047",
     ]
 
 
@@ -73,7 +71,7 @@ def test_send_key_event_emits_one_key_event():
     assert hdc.commands[-1][1] == "uitest uiInput keyEvent 2072 2038"
 
 
-def test_replace_text_focuses_clears_and_inputs():
+def test_replace_text_selects_existing_value_and_inputs_without_preclearing():
     hdc = _RecordingHdc()
     wrapper = UiTestWrapper(hdc)
 
@@ -83,10 +81,7 @@ def test_replace_text_focuses_clears_and_inputs():
     assert [command for _, command, _ in hdc.commands] == [
         "uitest uiInput click 10 20",
         "uitest uiInput keyEvent 2072 2017",
-        "uitest uiInput keyEvent 2071",
         f"uitest uiInput text {shlex.quote('新内容')}",
-        "uitest uiInput keyEvent 2047",
-        "uitest uiInput keyEvent 2047",
     ]
 
 
@@ -102,3 +97,46 @@ def test_replace_text_with_empty_value_only_clears():
         "uitest uiInput keyEvent 2072 2017",
         "uitest uiInput keyEvent 2071",
     ]
+
+
+def test_find_element_in_tree_filters_global_dump_by_window_id():
+    wrapper = UiTestWrapper(_RecordingHdc())
+    tree = {
+        "nodes": [
+            {
+                "type": "TextInput",
+                "properties": {
+                    "ID": "security",
+                    "compid": "92:security",
+                    "text": "security",
+                    "left": 10,
+                    "top": 20,
+                    "width": 100,
+                    "height": 40,
+                },
+                "children": [],
+            },
+            {
+                "type": "TextInput",
+                "properties": {
+                    "ID": "browser",
+                    "compid": "100:browser",
+                    "text": "browser",
+                    "left": 200,
+                    "top": 20,
+                    "width": 100,
+                    "height": 40,
+                },
+                "children": [],
+            },
+        ]
+    }
+
+    elements = wrapper.find_element_in_tree(
+        tree,
+        element_type="TextInput",
+        window_id=92,
+    )
+
+    assert [element["id"] for element in elements] == ["security"]
+    assert elements[0]["window_id"] == 92

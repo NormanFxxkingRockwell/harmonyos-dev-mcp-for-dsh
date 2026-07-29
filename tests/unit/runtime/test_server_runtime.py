@@ -185,10 +185,24 @@ async def test_all_tools_expose_agent_facing_descriptions_and_input_contracts(mo
         "key_code",
         "modifiers",
         "event_key_codes",
+        "dispatched",
+        "effect_verified",
     }
     assert tool_map["input_text"].inputSchema["required"] == ["text"]
     assert tool_map["input_text"].inputSchema["properties"]["mode"]["default"] == "replace"
     assert "element_handle" in tool_map["input_text"].description
+    assert "verified=false" in tool_map["input_text"].description
+    input_result_schema = tool_map["input_text"].outputSchema["properties"]["result"]["anyOf"][0]
+    assert set(input_result_schema["properties"]) >= {
+        "requested_text",
+        "before_text",
+        "input_strategy",
+        "dispatched",
+        "verified",
+        "clipboard_modified",
+        "actual_text",
+        "stage",
+    }
     assert "find_element" not in tool_map
     assert "wait_element" not in tool_map
     assert tool_map["click"].inputSchema["properties"]["count"]["enum"] == [1, 2]

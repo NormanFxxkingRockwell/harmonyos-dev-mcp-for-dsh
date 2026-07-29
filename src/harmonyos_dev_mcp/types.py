@@ -180,11 +180,19 @@ class SwipeResult(BaseResult, total=False):
 
 class InputTextResult(BaseResult, total=False):
     text: str
+    requested_text: str
+    before_text: Optional[str]
     x: int
     y: int
     mode: str
+    input_strategy: str
+    dispatched: bool
     verified: bool
+    clipboard_modified: bool
+    cleanup_performed: bool
     actual_text: Optional[str]
+    observations: int
+    elapsed_ms: int
     resolved_via: TargetResolution
     handle_refreshed: bool
     element_handle: Optional[dict]
@@ -197,6 +205,8 @@ class PressKeyResult(BaseResult, total=False):
     key_code: Optional[int]
     modifiers: List[str]
     event_key_codes: List[int]
+    dispatched: bool
+    effect_verified: bool
     message: str
 
 

@@ -1,11 +1,15 @@
 """UI automation tools."""
 
 import asyncio
+import functools
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from weakref import WeakKeyDictionary
 
 from harmonyos_dev_mcp._common.tools.registry import mcp_tool
+from harmonyos_dev_mcp.config import Config
+from harmonyos_dev_mcp.device.hdc.routing import get_hdc_server_override
 
 from ..container import get_hdc, get_ui_operations
 from ..types import (
@@ -30,6 +34,53 @@ _MODIFIER_KEYS = {
     "meta": ("Meta", int(KeyCode.META_LEFT)),
     "shift": ("Shift", int(KeyCode.SHIFT_LEFT)),
 }
+_ASCII_PASTE_SENTINEL = "中"
+_UI_MUTATION_LOCKS: WeakKeyDictionary = WeakKeyDictionary()
+
+
+def _device_mutation_lock(device_id: str) -> asyncio.Lock:
+    """Return the lock that serializes UI mutations for one routed device."""
+    loop = asyncio.get_running_loop()
+    hdc_server = get_hdc_server_override() or Config.HARMONYOS_HDC_SERVER or ""
+    locks_for_loop = _UI_MUTATION_LOCKS.setdefault(loop, {})
+    key = (hdc_server, device_id)
+    lock = locks_for_loop.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        locks_for_loop[key] = lock
+    return lock
+
+
+def _serialize_ui_mutation(func):
+    """Keep a public UI mutation atomic relative to other mutations."""
+
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        device_id = kwargs.get("device_id")
+        if not device_id:
+            return await func(*args, **kwargs)
+        async with _device_mutation_lock(device_id):
+            return await func(*args, **kwargs)
+
+    return wrapper
+
+
+def _input_strategy(text: str) -> Tuple[str, str, bool, Optional[str]]:
+    """Choose a deterministic UiTest text route using only public device abilities."""
+    if text == "":
+        return "clear", "", False, None
+    if len(text) > 200:
+        return "native_paste", text, True, None
+    if text.isascii() and text.isdecimal():
+        return "direct_key_events", text, False, None
+    if not text.isascii():
+        return "native_paste", text, True, None
+    return (
+        "forced_paste_sentinel",
+        f"{text}{_ASCII_PASTE_SENTINEL}",
+        True,
+        _ASCII_PASTE_SENTINEL,
+    )
 
 
 def _with_success_message(raw: Any, message: str) -> Any:
@@ -58,12 +109,15 @@ def _press_key_result(
     *,
     modifiers: Optional[List[str]] = None,
     event_key_codes: Optional[List[int]] = None,
+    dispatched: bool = False,
 ) -> Dict[str, Any]:
     return {
         "key": resolved_key.name if resolved_key is not None else None,
         "key_code": resolved_key.code if resolved_key is not None else None,
         "modifiers": list(modifiers or []),
         "event_key_codes": list(event_key_codes or []),
+        "dispatched": dispatched,
+        "effect_verified": False,
     }
 
 
@@ -273,58 +327,185 @@ async def _resolve_element_coords(
     return True, (element["x"], element["y"])
 
 
+async def _resolve_input_search_target(
+    device_id: str,
+    *,
+    text: Optional[str],
+    element_type: Optional[str],
+    element_id: Optional[str],
+    bundle_name: Optional[str],
+) -> Tuple[bool, Dict[str, Any]]:
+    """Resolve a search to one reusable handle so text input can be verified."""
+    ui_ops = get_ui_operations()
+    lookup_hint = build_lookup_hint(
+        text=text,
+        element_type=element_type,
+        element_id=element_id,
+        bundle_name=bundle_name,
+    )
+    raw = await asyncio.to_thread(
+        ui_ops.find_element,
+        device_id,
+        text=text,
+        element_type=element_type,
+        element_id=element_id,
+        bundle_name=bundle_name,
+    )
+    if not raw.get("success", False):
+        return False, from_action_result(
+            raw,
+            default_code="FIND_ELEMENT_ERROR",
+            default_detail="find element failed",
+            default_result={"elements": [], "count": 0},
+        )
+
+    elements = attach_element_metadata(
+        raw.get("elements", []),
+        bundle_name=bundle_name,
+        window_id=raw.get("window_id"),
+        lookup_hint=lookup_hint,
+    )
+    if not elements:
+        return False, error_result(
+            "ELEMENT_NOT_FOUND",
+            (
+                "element not found for input_text lookup; call find_elements with "
+                "more specific criteria and pass its element_handle"
+            ),
+            result={"elements": [], "count": 0},
+        )
+    if len(elements) > 1:
+        return False, error_result(
+            "AMBIGUOUS_ELEMENT_MATCH",
+            "input_text search matched multiple elements; pass a specific element_handle",
+            result={
+                "elements": elements,
+                "count": len(elements),
+                "match_count": len(elements),
+                "candidate_handles": compact_candidate_handles(elements),
+            },
+        )
+
+    element = elements[0]
+    if element.get("x") is None or element.get("y") is None:
+        return False, error_result(
+            "INVALID_ELEMENT_COORDS",
+            f"invalid element coords: {element}",
+            result={"elements": elements, "count": 1},
+        )
+    return True, _resolved_result(
+        element,
+        resolved_via="search",
+        handle_refreshed=False,
+    )
+
+
 async def _verify_input_handle(
     *,
     device_id: str,
     element_handle: Dict[str, Any],
     expected_text: str,
-    mode: Literal["replace", "append"],
+    sentinel: Optional[str],
     action_result: dict,
 ) -> dict:
-    """Re-read a handled input after writing so command success cannot mask a UI miss."""
-    verified_ok, verified = await _resolve_handle_coords(device_id, element_handle)
+    """Observe a handled input until it reaches a valid terminal text state."""
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    timeout_ms = max(0, Config.INPUT_VERIFY_TIMEOUT_MS)
+    deadline = started + timeout_ms / 1000
     result_data = dict(action_result.get("result") or {})
-    if not verified_ok:
-        result_data["verified"] = False
-        return error_result(
-            "TEXT_VERIFICATION_FAILED",
-            "input command succeeded, but the target element could not be re-read",
-            result=result_data,
-        )
+    active_handle = dict(element_handle)
+    actual_text: Optional[str] = None
+    observations = 0
+    cleanup_pending = sentinel is not None
+    cleanup_performed = False
+    last_resolution_error: Optional[dict] = None
 
-    verified_handle = dict(verified.get("element_handle") or {})
-    actual_text = verified_handle.get("text")
-    matched = (
-        actual_text == expected_text
-        if mode == "replace"
-        else isinstance(actual_text, str) and actual_text.endswith(expected_text)
-    )
+    while loop.time() < deadline:
+        verified_ok, verified = await _resolve_handle_coords(device_id, active_handle)
+        observations += 1
+        if loop.time() >= deadline:
+            break
+        if not verified_ok:
+            last_resolution_error = verified
+            continue
+
+        verified_handle = dict(verified.get("element_handle") or {})
+        if verified_handle:
+            active_handle = verified_handle
+        actual_text = active_handle.get("text")
+
+        if actual_text == expected_text:
+            result_data.update(
+                {
+                    "actual_text": actual_text,
+                    "verified": True,
+                    "element_handle": active_handle,
+                    "cleanup_performed": cleanup_performed,
+                    "observations": observations,
+                    "elapsed_ms": int((loop.time() - started) * 1000),
+                    "stage": "complete",
+                    "message": "input text verified",
+                }
+            )
+            action_result["result"] = result_data
+            return action_result
+
+        if cleanup_pending and actual_text == f"{expected_text}{sentinel}":
+            cleanup_raw = await asyncio.to_thread(
+                get_ui_operations().press_key,
+                device_id,
+                int(KeyCode.DEL),
+            )
+            if not cleanup_raw.get("success", False):
+                result_data.update(
+                    {
+                        "actual_text": actual_text,
+                        "verified": False,
+                        "element_handle": active_handle,
+                        "cleanup_performed": False,
+                        "observations": observations,
+                        "elapsed_ms": int((loop.time() - started) * 1000),
+                        "stage": "cleanup",
+                    }
+                )
+                return error_result(
+                    "TEXT_CLEANUP_FAILED",
+                    "sentinel was observed, but Backspace could not remove it",
+                    result=result_data,
+                )
+            cleanup_pending = False
+            cleanup_performed = True
+
     result_data.update(
         {
             "actual_text": actual_text,
-            "verified": matched,
-            "element_handle": verified_handle,
+            "verified": False,
+            "element_handle": active_handle,
+            "cleanup_performed": cleanup_performed,
+            "observations": observations,
+            "elapsed_ms": int((loop.time() - started) * 1000),
+            "stage": "observe",
         }
     )
-    if not matched:
-        return error_result(
-            "TEXT_VERIFICATION_FAILED",
-            (
-                f"input command succeeded, but UI text verification failed: "
-                f"expected {'exact text' if mode == 'replace' else 'suffix'} "
-                f"{expected_text!r}, got {actual_text!r}"
-            ),
-            result=result_data,
-        )
-
-    action_result["result"] = result_data
-    return action_result
+    detail = (
+        f"input was dispatched, but UI text did not become {expected_text!r} "
+        f"within {timeout_ms}ms; last value was {actual_text!r}"
+    )
+    if observations and last_resolution_error and actual_text is None:
+        detail = "input was dispatched, but the target element could not be re-read before the verification deadline"
+    return error_result(
+        "TEXT_VERIFICATION_TIMEOUT",
+        detail,
+        result=result_data,
+    )
 
 
 @mcp_tool(category="ui")
 @mcp_response("click")
 @DeviceToolSupport.handle_tool_error("CLICK_ERROR", x=0, y=0)
 @DeviceToolSupport.with_device(x=0, y=0)
+@_serialize_ui_mutation
 async def click(
     device_id: Optional[str] = None,
     x: Optional[int] = None,
@@ -428,6 +609,7 @@ async def click(
 @mcp_response("long_press")
 @DeviceToolSupport.handle_tool_error("LONG_PRESS_ERROR")
 @DeviceToolSupport.with_device()
+@_serialize_ui_mutation
 async def long_press(
     device_id: Optional[str] = None,
     x: Optional[int] = None,
@@ -514,6 +696,7 @@ async def long_press(
 @mcp_response("swipe")
 @DeviceToolSupport.handle_tool_error("SWIPE_ERROR", from_x=0, from_y=0, to_x=0, to_y=0, direction=None)
 @DeviceToolSupport.with_device(from_x=0, from_y=0, to_x=0, to_y=0, direction=None)
+@_serialize_ui_mutation
 async def swipe(
     device_id: Optional[str] = None,
     from_x: Optional[int] = None,
@@ -568,6 +751,7 @@ async def swipe(
 @mcp_response("input_text")
 @DeviceToolSupport.handle_tool_error("INPUT_TEXT_ERROR", text="", x=0, y=0)
 @DeviceToolSupport.with_device(text="", x=0, y=0)
+@_serialize_ui_mutation
 async def input_text(
     text: str,
     device_id: Optional[str] = None,
@@ -585,11 +769,21 @@ async def input_text(
 
     For reliable automation, first call find_elements/wait_for_element and pass its
     element_handle; handle mode re-reads the field and verifies the final text.
-    Coordinates and search criteria remain best-effort and return verified=false.
-    Replace mode is the default, and an empty replacement clears the field.
+    Search criteria must resolve to one element and are then verified like handles.
+    Coordinates cannot be re-read and therefore remain best-effort with
+    verified=false. Replace mode is the default, and an empty replacement clears
+    the field.
     """
 
-    default_result = {"text": text or "", "x": x or 0, "y": y or 0, "mode": mode}
+    default_result = {
+        "text": text or "",
+        "requested_text": text or "",
+        "x": x or 0,
+        "y": y or 0,
+        "mode": mode,
+        "dispatched": False,
+        "verified": False,
+    }
 
     if text is None:
         return error_result("MISSING_TEXT", "text is required", result=default_result)
@@ -606,6 +800,13 @@ async def input_text(
             result=default_result,
         )
 
+    strategy, dispatched_text, clipboard_modified, sentinel = _input_strategy(text)
+    default_result.update(
+        {
+            "input_strategy": strategy,
+            "clipboard_modified": clipboard_modified,
+        }
+    )
     ui_ops = get_ui_operations()
     action_fn = ui_ops.input_text if mode == "append" else ui_ops.replace_text
 
@@ -617,7 +818,19 @@ async def input_text(
         )
 
     if x is not None and y is not None:
-        return await _perform_resolved_action(
+        coordinate_strategy = strategy
+        coordinate_text = dispatched_text
+        coordinate_clipboard_modified = clipboard_modified
+        if sentinel is not None:
+            coordinate_strategy = "best_effort_direct"
+            coordinate_text = text
+            coordinate_clipboard_modified = False
+        coordinate_result = {
+            **default_result,
+            "input_strategy": coordinate_strategy,
+            "clipboard_modified": coordinate_clipboard_modified,
+        }
+        action_result = await _perform_resolved_action(
             action_fn=action_fn,
             device_id=device_id,
             resolved={
@@ -629,39 +842,41 @@ async def input_text(
                 "element_handle": None,
                 "mode": mode,
             },
-            success_message="input text succeeded",
+            success_message="input text dispatched",
             default_code="INPUT_TEXT_ERROR",
             default_detail="input text failed",
-            extra_args=(text,),
-            extra_result={"mode": mode, "verified": False},
+            extra_args=(coordinate_text,),
+            extra_result=coordinate_result,
         )
+        result_data = dict(action_result.get("result") or {})
+        result_data.update(
+            {
+                **coordinate_result,
+                "x": x,
+                "y": y,
+                "resolved_via": "coordinates",
+                "handle_refreshed": False,
+                "element_handle": None,
+                "dispatched": action_result.get("ok", False),
+                "verified": False,
+                "stage": "dispatched" if action_result.get("ok", False) else result_data.get("stage", "dispatch"),
+                "message": (
+                    "input text dispatched without verification"
+                    if action_result.get("ok", False)
+                    else result_data.get("message", "input text dispatch failed")
+                ),
+            }
+        )
+        action_result["result"] = result_data
+        return action_result
 
+    resolved: Optional[Dict[str, Any]] = None
     if element_handle is not None:
         ok, resolved = await _resolve_handle_coords(device_id, element_handle)
         if not ok:
             return resolved
-        action_result = await _perform_resolved_action(
-            action_fn=action_fn,
-            device_id=device_id,
-            resolved=resolved,
-            success_message="input text succeeded",
-            default_code="INPUT_TEXT_ERROR",
-            default_detail="input text failed",
-            extra_args=(text,),
-            extra_result={"text": text, "mode": mode, "verified": False},
-        )
-        if not action_result.get("ok", False):
-            return action_result
-        return await _verify_input_handle(
-            device_id=device_id,
-            element_handle=resolved["element_handle"],
-            expected_text=text,
-            mode=mode,
-            action_result=action_result,
-        )
-
-    if element_text or element_type or element_id:
-        ok, coords = await _resolve_element_coords(
+    elif element_text or element_type or element_id:
+        ok, resolved = await _resolve_input_search_target(
             device_id,
             text=element_text,
             element_type=element_type,
@@ -669,36 +884,67 @@ async def input_text(
             bundle_name=bundle_name,
         )
         if not ok:
-            if isinstance(coords, dict) and coords.get("error", {}).get("code") == "ELEMENT_NOT_FOUND":
-                coords["error"]["detail"] = (
-                    "element not found for input_text lookup; call find_elements with "
-                    "more specific criteria and pass its element_handle"
-                )
-            return coords
-        ex, ey = coords
-        return await _perform_resolved_action(
-            action_fn=action_fn,
-            device_id=device_id,
-            resolved={
-                "text": text,
-                "x": ex,
-                "y": ey,
-                "resolved_via": "search",
-                "handle_refreshed": False,
-                "element_handle": None,
-                "mode": mode,
-            },
-            success_message="input text succeeded",
-            default_code="INPUT_TEXT_ERROR",
-            default_detail="input text failed",
-            extra_args=(text,),
-            extra_result={"mode": mode, "verified": False},
+            return resolved
+    else:
+        return error_result(
+            "MISSING_PARAMS",
+            "must provide coordinates, element_handle, or search criteria",
+            result=default_result,
         )
 
-    return error_result(
-        "MISSING_PARAMS",
-        "must provide coordinates, element_handle, or search criteria",
-        result=default_result,
+    assert resolved is not None
+    resolved_handle = dict(resolved.get("element_handle") or {})
+    before_text = resolved_handle.get("text")
+    if mode == "append" and not isinstance(before_text, str):
+        return error_result(
+            "TEXT_NOT_READABLE",
+            "append mode requires a readable element text value so the final value can be verified",
+            result={
+                **default_result,
+                **resolved,
+                "before_text": before_text,
+                "stage": "resolve_target",
+            },
+        )
+    expected_text = text if mode == "replace" else f"{before_text}{text}"
+
+    action_result = await _perform_resolved_action(
+        action_fn=action_fn,
+        device_id=device_id,
+        resolved=resolved,
+        success_message="input text dispatched",
+        default_code="INPUT_TEXT_ERROR",
+        default_detail="input text dispatch failed",
+        extra_args=(dispatched_text,),
+        extra_result={
+            **default_result,
+            "before_text": before_text,
+            "actual_text": before_text,
+            "stage": "dispatch",
+        },
+    )
+    result_data = dict(action_result.get("result") or {})
+    result_data.update(
+        {
+            **default_result,
+            **resolved,
+            "before_text": before_text,
+            "actual_text": before_text,
+            "dispatched": action_result.get("ok", False),
+            "verified": False,
+            "stage": result_data.get("stage", "dispatch"),
+        }
+    )
+    action_result["result"] = result_data
+    if not action_result.get("ok", False):
+        return action_result
+
+    return await _verify_input_handle(
+        device_id=device_id,
+        element_handle=resolved_handle,
+        expected_text=expected_text,
+        sentinel=sentinel,
+        action_result=action_result,
     )
 
 
@@ -710,13 +956,18 @@ async def input_text(
     key_code=None,
     modifiers=[],
     event_key_codes=[],
+    dispatched=False,
+    effect_verified=False,
 )
 @DeviceToolSupport.with_device(
     key=None,
     key_code=None,
     modifiers=[],
     event_key_codes=[],
+    dispatched=False,
+    effect_verified=False,
 )
+@_serialize_ui_mutation
 async def press_key(
     key: Union[str, int],
     modifiers: Optional[List[Literal["Ctrl", "Alt", "Shift", "Meta"]]] = None,
@@ -732,6 +983,8 @@ async def press_key(
     ``page_up`` are valid. Use ``Backspace`` for KEYCODE_DEL and ``Delete`` for
     KEYCODE_FORWARD_DEL. The result returns the canonical key name, its numeric
     code, and the exact key codes sent in the single HarmonyOS keyEvent.
+    ``dispatched=true`` confirms command delivery; ``effect_verified`` remains
+    false because arbitrary application behavior cannot be inferred from a key.
     """
 
     resolved_key = resolve_key(key)
@@ -796,13 +1049,14 @@ async def press_key(
                 resolved_key,
                 modifiers=normalized_modifiers,
                 event_key_codes=event_key_codes,
+                dispatched=raw.get("success", False),
             )
         )
-    raw = _with_success_message(raw, "key press succeeded")
+    raw = _with_success_message(raw, "key event dispatched")
     return from_action_result(
         raw,
         default_code="PRESS_KEY_ERROR",
-        default_detail="key press failed",
+        default_detail="key event dispatch failed",
         default_result=_press_key_result(
             resolved_key,
             modifiers=normalized_modifiers,
@@ -931,6 +1185,7 @@ async def screenshot(
 @mcp_response("drag")
 @DeviceToolSupport.handle_tool_error("DRAG_ERROR")
 @DeviceToolSupport.with_device()
+@_serialize_ui_mutation
 async def drag(
     device_id: Optional[str] = None,
     from_x: Optional[int] = None,

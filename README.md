@@ -2,7 +2,7 @@
 
 `harmonyos_dev_mcp` provides HarmonyOS MCP tools for device discovery, app build and deployment, UI automation, E2E inspection, and log validation.
 
-[![Version](https://img.shields.io/badge/version-0.9.0-blue)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-0.9.1-blue)](pyproject.toml)
 [![PyPI](https://img.shields.io/pypi/v/harmonyos-dev-mcp.svg)](https://pypi.org/project/harmonyos-dev-mcp/)
 [![Python](https://img.shields.io/badge/python-3.12+-blue)](https://www.python.org/)
 
@@ -16,20 +16,16 @@
 
 The package exposes 18 MCP tools:
 
-### 0.9.0 highlights
+### 0.9.1 highlights
 
-- Clear action names: `click`, `long_press`, `find_elements`, and
-  `wait_for_element`.
-- Stable native MCP responses with correct `isError` values and an
-  `outputSchema` for every tool.
-- Complete mapping of all 354 OpenHarmony InputKit `KEYCODE_*` definitions.
-- Reliable text entry through reusable element handles with post-input
+- `input_text` now selects an IME-safe strategy for digits, Unicode, and ASCII
+  text without changing the active input method.
+- Handle and unambiguous search targets are observed until their exact final
+  value is visible or the verification deadline expires.
+- UI mutations are serialized per HDC endpoint and device, while separate
+  devices remain concurrent.
+- `press_key` distinguishes event dispatch from application-level effect
   verification.
-- Side-effect-free package imports and explicit server startup.
-
-This release intentionally removes the old `click_element`,
-`long_press_element`, `find_element`, and `wait_element` tool names. Agents
-should refresh `tools/list` after upgrading.
 
 Parameter notation:
 
@@ -72,6 +68,25 @@ UI tools:
 `press_key` accepts all 354 OpenHarmony InputKit `KEYCODE_*` definitions. Key
 names are case- and separator-insensitive, so `KEYCODE_PAGE_UP`, `PageUp`, and
 `page-up` are equivalent. Use `input_text` for strings and Chinese text.
+
+For reliable text entry, call `find_elements` or `wait_for_element` first and
+pass the returned `element_handle` to `input_text`. A search target is also
+verified when it resolves to exactly one element. Coordinate mode cannot read
+the target value, so it sends the original text without cleanup tricks and
+returns `dispatched=true, verified=false`.
+
+`input_text` never toggles the active IME. Internally it uses direct entry for
+short ASCII digits, native paste for Unicode or long text, and a verified
+sentinel-assisted paste for other ASCII text. The sentinel is removed only
+after the exact sentinel-bearing value is observed. Paste strategies may
+replace the device clipboard; check `clipboard_modified` in the result.
+
+Input verification uses a deadline rather than a fixed delay. Set
+`INPUT_VERIFY_TIMEOUT_MS` to change the default `15000ms` budget. Successful
+observations return immediately. Password fields and some Web/Chromium
+accessibility fields may not expose or accept deterministic text operations;
+these return a verification error with the last observed `actual_text` instead
+of claiming success. A failed write may still leave partial text in the target.
 
 E2E tools:
 

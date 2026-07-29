@@ -277,34 +277,29 @@ class UiTestWrapper:
             }
 
         result = self._input_focused_text(device_id, text)
+        if not result.get("success", False):
+            return {
+                "success": False,
+                "action": "inputText",
+                "x": x,
+                "y": y,
+                "text": text,
+                "stage": "dispatch",
+                "error": result.get("stderr", "failed to dispatch text"),
+                "message": f'文本输入失败: {result.get("stderr", "")}',
+            }
         return {
-            'success': result['success'],
+            'success': True,
             'action': 'inputText',
             'x': x,
             'y': y,
             'text': text,
-            'message': '文本输入成功' if result['success'] else f'文本输入失败: {result.get("stderr", "")}'
+            'message': '文本输入成功',
         }
 
     def _input_focused_text(self, device_id: str, text: str) -> Dict[str, Any]:
-        """Input focused text, commit any IME composition, and restore the IME mode."""
-        result = self._execute_uitest(device_id, f"text {shlex.quote(text)}")
-        if not result.get("success", False):
-            return result
-
-        first_shift = self.press_key(device_id, int(KeyCode.SHIFT_LEFT))
-        if not first_shift.get("success", False):
-            return {
-                "success": False,
-                "stderr": first_shift.get("error", "failed to commit IME composition"),
-            }
-        second_shift = self.press_key(device_id, int(KeyCode.SHIFT_LEFT))
-        if not second_shift.get("success", False):
-            return {
-                "success": False,
-                "stderr": second_shift.get("error", "failed to restore IME mode"),
-            }
-        return result
+        """Send text to the focused field without changing the active IME mode."""
+        return self._execute_uitest(device_id, f"text {shlex.quote(text)}")
 
     # ========================================================================
     # 按键操作
@@ -339,19 +334,18 @@ class UiTestWrapper:
                 "error": select_result.get("error", "failed to select existing text"),
             }
 
-        clear_result = self.press_key(device_id, int(KeyCode.FORWARD_DEL))
-        if not clear_result.get("success", False):
-            return {
-                "success": False,
-                "action": "replaceText",
-                "x": x,
-                "y": y,
-                "text": text,
-                "stage": "clear",
-                "error": clear_result.get("error", "failed to clear existing text"),
-            }
-
         if text == "":
+            clear_result = self.press_key(device_id, int(KeyCode.FORWARD_DEL))
+            if not clear_result.get("success", False):
+                return {
+                    "success": False,
+                    "action": "replaceText",
+                    "x": x,
+                    "y": y,
+                    "text": text,
+                    "stage": "clear",
+                    "error": clear_result.get("error", "failed to clear existing text"),
+                }
             return {
                 "success": True,
                 "action": "replaceText",
@@ -362,17 +356,24 @@ class UiTestWrapper:
             }
 
         result = self._input_focused_text(device_id, text)
+        if not result.get("success", False):
+            return {
+                "success": False,
+                "action": "replaceText",
+                "x": x,
+                "y": y,
+                "text": text,
+                "stage": "dispatch",
+                "error": result.get("stderr", "failed to dispatch replacement text"),
+                "message": f'text replacement failed: {result.get("stderr", "")}',
+            }
         return {
-            "success": result["success"],
+            "success": True,
             "action": "replaceText",
             "x": x,
             "y": y,
             "text": text,
-            "message": (
-                "text replaced"
-                if result["success"]
-                else f'text replacement failed: {result.get("stderr", "")}'
-            ),
+            "message": "text replaced",
         }
 
     def send_key_event(
@@ -399,9 +400,9 @@ class UiTestWrapper:
             "key": key_values[0],
             "keys": key_values,
             "message": (
-                "key press succeeded"
+                "key event dispatched"
                 if result["success"]
-                else f'key press failed: {result.get("stderr", "")}'
+                else f'key event dispatch failed: {result.get("stderr", "")}'
             ),
         }
 
@@ -545,7 +546,8 @@ class UiTestWrapper:
     def find_element_in_tree(self, ui_tree: Dict[str, Any],
                              text: str = None,
                              element_type: str = None,
-                             element_id: str = None) -> List[Dict[str, Any]]:
+                             element_id: str = None,
+                             window_id: int = None) -> List[Dict[str, Any]]:
         """
         在UI树中查找元素（支持 -inspector 格式，坐标为屏幕绝对坐标）
 
@@ -554,6 +556,7 @@ class UiTestWrapper:
             text: 元素文本（模糊匹配）
             element_type: 元素类型（如 Button, Text 等）
             element_id: 元素ID
+            window_id: 仅匹配 compid 属于该窗口的节点
 
         Returns:
             匹配的元素列表，每个元素包含屏幕绝对坐标（可直接用于点击）
@@ -563,27 +566,31 @@ class UiTestWrapper:
         def search_nodes(nodes: List[Dict], depth: int = 0):
             for node in nodes:
                 match = True
+                props = node.get('properties', {})
+                compid = str(props.get('compid', ''))
+                compid_window = compid.partition(':')[0]
+                node_window_id = int(compid_window) if compid_window.isdigit() else None
+
+                if window_id is not None and node_window_id != window_id:
+                    match = False
 
                 # 检查类型
-                if element_type and node.get('type') != element_type:
+                if element_type and match and node.get('type') != element_type:
                     match = False
 
                 # 检查文本（-inspector 格式使用小写 'text' 属性）
                 if text and match:
-                    props = node.get('properties', {})
                     node_text = str(props.get('text', ''))
                     if text.lower() not in node_text.lower():
                         match = False
 
                 # 检查ID
                 if element_id and match:
-                    node_id = node.get('properties', {}).get('ID', '')
+                    node_id = props.get('ID', '')
                     if str(element_id) != str(node_id):
                         match = False
 
                 if match and (text or element_type or element_id):
-                    props = node.get('properties', {})
-
                     # -inspector 格式直接提供 top, left, width, height（屏幕绝对坐标）
                     top = props.get('top', 0)
                     left = props.get('left', 0)
@@ -599,6 +606,7 @@ class UiTestWrapper:
                         'text': props.get('text', ''),
                         'id': props.get('ID', ''),
                         'compid': props.get('compid', ''),
+                        'window_id': node_window_id,
                         'top': top,
                         'left': left,
                         'width': width,
@@ -650,6 +658,7 @@ class UiTestWrapper:
 
         # 确定窗口ID
         target_window_id = window_id
+        has_explicit_window_scope = window_id is not None or bool(bundle_name)
 
         if not target_window_id:
             if bundle_name:
@@ -687,7 +696,8 @@ class UiTestWrapper:
             {'nodes': parsed_tree['nodes']},
             text=text,
             element_type=element_type,
-            element_id=element_id
+            element_id=element_id,
+            window_id=target_window_id if has_explicit_window_scope else None,
         )
 
         return {

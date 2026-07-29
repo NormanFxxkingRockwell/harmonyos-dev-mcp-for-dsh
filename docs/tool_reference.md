@@ -484,24 +484,55 @@ Rules:
 - `text` is always required.
 - Use one resolution mode only.
 - Do not pass `element_handle` as a JSON string.
-- `replace` focuses the field, selects all text, clears it, and enters the new value.
+- `replace` focuses the field and selects all text. Non-empty replacement text
+  is entered directly over the selection; it is not pre-cleared.
 - An empty `text` value is allowed in `replace` mode and clears the field.
 - Use `append` only when the existing value must be preserved; the caret is moved to the end first.
-- Text is sent after focusing the target; pending IME composition is committed and the prior input mode is restored.
+- `input_text` does not press Shift or otherwise change the active IME.
 - For reliable automation, call `find_elements` or `wait_for_element` first and pass its `element_handle`.
-- Handle mode re-reads the element and fails with `TEXT_VERIFICATION_FAILED` if the UI value does not match.
-- Coordinate and search modes are best-effort and return `verified: false`.
+- Handle mode observes the element until its exact final value is visible or
+  the `INPUT_VERIFY_TIMEOUT_MS` deadline expires.
+- Search mode must match exactly one element. It is converted to a handle and
+  receives the same exact-value verification as handle mode.
+- Coordinate mode cannot read the target value. It sends the original text
+  directly and returns `dispatched: true, verified: false` when the command is
+  accepted.
+- Short ASCII digits use direct entry. Unicode and text longer than 200
+  characters use the native paste route. Other ASCII text uses an internal
+  sentinel to force paste; Backspace is sent only after the sentinel-bearing
+  final value has been observed.
+- Paste strategies may replace the device clipboard and return
+  `clipboard_modified: true`.
+- `append` verifies exact equality with `before_text + requested_text`; a
+  matching suffix alone is not accepted.
+- Verification has a `15000ms` default deadline, configurable through
+  `INPUT_VERIFY_TIMEOUT_MS`. Successful observations return immediately; the
+  deadline does not add a fixed delay.
+- Password fields and some Web/Chromium accessibility fields cannot expose or
+  accept deterministic text operations. They return a verification error with
+  the last observed `actual_text`; a failed write may still leave partial text
+  in the target.
 
 Key result fields:
 
 - `text`
+- `requested_text`
+- `before_text`
 - `x`
 - `y`
+- `mode`
+- `input_strategy`
+- `dispatched`
+- `clipboard_modified`
 - `resolved_via`
 - `handle_refreshed`
 - `element_handle`
 - `verified`
-- `actual_text` (handle mode)
+- `actual_text`
+- `cleanup_performed`
+- `observations`
+- `elapsed_ms`
+- `stage`
 
 Common errors:
 
@@ -510,7 +541,10 @@ Common errors:
 - `MISSING_PARAMS`
 - `INVALID_ELEMENT_HANDLE`
 - `ELEMENT_NOT_FOUND`
-- `TEXT_VERIFICATION_FAILED`
+- `AMBIGUOUS_ELEMENT_MATCH`
+- `TEXT_NOT_READABLE`
+- `TEXT_CLEANUP_FAILED`
+- `TEXT_VERIFICATION_TIMEOUT`
 
 Correct example:
 
@@ -562,6 +596,8 @@ Rules:
   `MoveEnd`/`End` (2082) for caret movement.
 - Unknown numeric values are rejected before an HDC command is sent.
 - Modifiers are sent with the primary key as one HarmonyOS `keyEvent`.
+- `dispatched: true` means the key event command was accepted. It does not
+  claim that an arbitrary application reacted to the key.
 
 Key result fields:
 
@@ -569,6 +605,8 @@ Key result fields:
 - `key_code`: numeric code for the primary key
 - `modifiers`: normalized modifier names
 - `event_key_codes`: exact ordered codes sent in the single `keyEvent`
+- `dispatched`: whether the HarmonyOS key event was sent successfully
+- `effect_verified`: always `false`; application effects require a separate UI observation
 
 Examples:
 
