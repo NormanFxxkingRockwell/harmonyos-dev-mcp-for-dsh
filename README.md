@@ -1,256 +1,125 @@
-# HarmonyOS Dev MCP
+# harmonyos-dev-mcp-for-dsh
 
-`harmonyos_dev_mcp` provides HarmonyOS MCP tools for device discovery, app build and deployment, UI automation, E2E inspection, and log validation.
+![license](https://img.shields.io/badge/license-Apache--2.0-green)
+![dsh](https://img.shields.io/badge/dsh-plugin-4B32C3)
+![python](https://img.shields.io/badge/python-3.12+-blue)
 
-[![Version](https://img.shields.io/badge/version-0.9.1-blue)](pyproject.toml)
-[![PyPI](https://img.shields.io/pypi/v/harmonyos-dev-mcp.svg)](https://pypi.org/project/harmonyos-dev-mcp/)
-[![Python](https://img.shields.io/badge/python-3.12+-blue)](https://www.python.org/)
+**@deepseek-ai/dsh 插件：把 `harmonyos-dev-mcp`（HarmonyOS 设备 MCP 服务）桥接进 DeepSeek Harness**。
+安装后，AI 助手直接获得一套完整的鸿蒙开发工具：设备发现、构建/安装/启动/卸载、UI 自动化（点击/输入/按键/截图）、E2E 检查（UI 树/窗口/元素等待）、日志验证（错误提取/业务标记/历史日志/崩溃解析）。
 
-## Links
+## 工作原理
 
-- PyPI: [harmonyos-dev-mcp](https://pypi.org/project/harmonyos-dev-mcp/)
-- Tool reference: [docs/tool_reference.md](docs/tool_reference.md)
-- Logs query guide: [docs/logs_query.md](docs/logs_query.md)
+本插件是标准 dsh-plugin（`dsh.bundle.patch` → `cordis.patch.yml` 插入一行 host 插件），**零 npm 依赖**：
 
-## What It Provides
+```
+cordis.patch.yml
+  └─> id: harmonyos-dev-mcp (本包 lib/index.js)
+        ├─ 1. 解析 Python 运行时（bundled .venv → uv run 项目环境 → 系统 python）
+        ├─ 2. probe：快速 import harmonyos_dev_mcp，失败给出可修复提示（不影响 profile 启动）
+        └─ 3. 以内嵌的轻量 MCP stdio 客户端（newline-delimited JSON-RPC）拉起 Python 服务器
+              ├─ 18 个工具以 mcp__harmonyos__<tool> 注册到 ctx.tools
+              └─ 崩溃监督：指数退避自动重启并重新同步工具（上限 5 次）
+```
 
-The package exposes 18 MCP tools:
+只使用 Node 内置模块与宿主服务（`ctx.tools` / `ctx.systemPrompt`），不依赖任何 npm 包，
+避免把 @deepseek-ai/* 重复安装到 profile 造成符号不一致（会破坏宿主工具调度器）。
 
-### 0.9.1 highlights
+Python 源码完整打包在本仓库（`src/`、`pyproject.toml`、`uv.lock`），运行时零下载（环境已有则直接用）。
 
-- `input_text` now selects an IME-safe strategy for digits, Unicode, and ASCII
-  text without changing the active input method.
-- Handle and unambiguous search targets are observed until their exact final
-  value is visible or the verification deadline expires.
-- Reliable text input verifies both foreground-window state and element focus
-  before any text or shortcut is dispatched.
-- UI mutations are serialized per HDC endpoint and device, while separate
-  devices remain concurrent.
-- `press_key` distinguishes event dispatch from application-level effect
-  verification.
+## 安装
 
-Parameter notation:
+环境要求（宿主机）：
 
-- `name`: required
-- `name?`: optional
-- `name*`: conditionally required, depending on the selected mode or target
+- Python 3.12+ 与 [uv](https://docs.astral.sh/uv/)（推荐，自动管理项目环境）
+- HarmonyOS SDK 工具链（`hdc`、DevEco Studio 5.0+），与官方 `harmonyos-dev-mcp` 要求一致
 
-Device-targeted tools also accept `hdc_server?` for wireless debugging by IP. Pass the wireless HDC endpoint, for example `192.168.43.34:35215`, to route commands as `hdc -t 192.168.43.34:35215 ...`. If both a device SN and an IP endpoint are needed, pass `device_id` as the SN and `hdc_server` as the IP endpoint; commands are routed as `hdc -t <SN> -s <IP:port> ...`. You can also set `HARMONYOS_HDC_SERVER` as a default endpoint.
+```sh
+# 方式一：GitHub 源码安装（推荐）
+dsh plugin --profile <你的profile> add github:NormanFxxkingRockwell/harmonyos-dev-mcp-for-dsh
 
-General tools:
+# 方式二：本地 checkout（开发）
+dsh plugin --profile <你的profile> add file:<本仓库路径>
+```
 
-| Tool | Parameters |
+若 pnpm 提示 git 源生命周期脚本被拦截，按提示把输出的 key 加入
+`<profile>/pnpm-workspace.yaml` 的 `allowBuilds` 后重跑；该脚本只做 uv 缓存预热，
+跳过也不影响运行。
+
+重启 profile 后，在对话里直接说「列出连接的鸿蒙设备 / 安装这个 hap / 查看某应用界面 / 查最近错误日志」，
+模型会自动调用工具。
+
+## 工具清单（18 个，命名空间 mcp__harmonyos__）
+
+| 类别 | 工具 |
 |---|---|
-| `list_devices` | `hdc_server?` |
-| `query_package` | `device_id?`, `hdc_server?`, `bundle_name*`, `keyword?`, `info_type?="list"` |
-| `logs_query` | `device_id?`, `hdc_server?`, `logs?`, `input_file?`, `input_files?`, `lines?=100`, `level?`, `tag?`, `tag_search?`, `keyword?`, `domain?`, `pid?`, `package_name?`, `start_time?`, `end_time?`, `seconds?`, `save_path?`, `time_expr?`, `include_crash?=false`, `mode?="errors"`, `marker_keywords?`, `fallback_to_historical?=false`, `realtime_wait_ms?=1000`, `context_lines?=0` |
+| 通用 | `list_devices`、`query_package`（list/abilities/main_ability/permissions）、`logs_query`（errors/markers） |
+| 构建部署 | `build_app`（hap/har/hsp/app/hnp + HSP 集成）、`install_app`、`run_app`（自动探测入口并验证窗口）、`uninstall_app` |
+| UI 自动化 | `screenshot`、`click`、`long_press`、`input_text`（IME 安全策略）、`swipe`、`drag`、`press_key`（354 个 KEYCODE）、`find_elements` |
+| E2E | `get_ui_tree`、`list_windows`、`wait_for_element`（严格 deadline） |
 
-Build tools:
+设备目标参数：`device_id?`（`hdc list targets`）与 `hdc_server?`（无线调试 `IP:port`）；
+也可用环境变量 `HARMONYOS_HDC_SERVER` 设置默认无线端点。
+**`build_app` 是长任务：插件默认把单次 tool 调用超时设为 300s**（可通过配置调整）。
 
-| Tool | Parameters |
-|---|---|
-| `build_app` | `project_path`, `build_mode?="debug"`, `target?="hap"`, `product?="default"`, `module_name*`, `is_clean?=false`, `include_hsp?=false`, `hsp_module_names?` |
-| `install_app` | `hap_path`, `device_id?`, `hdc_server?` |
-| `run_app` | `bundle_name`, `device_id?`, `hdc_server?`, `ability_name?`, `module_name?`, `auto_detect?=true` |
-| `uninstall_app` | `bundle_name`, `device_id?`, `hdc_server?` |
+详细参数、结果字段、错误码、示例见 [docs/tool_reference.md](docs/tool_reference.md) 与 [docs/logs_query.md](docs/logs_query.md)。
 
-UI tools:
+## 配置（可选）
 
-| Tool | Parameters |
-|---|---|
-| `screenshot` | `device_id?`, `hdc_server?`, `local_path?`, `display_id?=0`, `left*`, `top*`, `right*`, `bottom*` |
-| `click` | `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `text*`, `element_type*`, `element_id*`, `count?=1`, `bundle_name?` |
-| `long_press` | `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `text*`, `element_type*`, `element_id*`, `bundle_name?` |
-| `input_text` | `text`, `device_id?`, `hdc_server?`, `x*`, `y*`, `element_handle*`, `element_text*`, `element_type*`, `element_id*`, `bundle_name?`, `mode?="replace"` |
-| `swipe` | `device_id?`, `hdc_server?`, `from_x*`, `from_y*`, `to_x*`, `to_y*`, `direction*`, `speed?=600` |
-| `drag` | `device_id?`, `hdc_server?`, `from_x`, `from_y`, `to_x`, `to_y`, `speed?=600` |
-| `press_key` | `key`, `modifiers?`, `device_id?`, `hdc_server?` |
-| `find_elements` | `device_id?`, `hdc_server?`, `text*`, `element_type*`, `element_id*`, `bundle_name?`, `window_id?` |
+在 profile 的 `cordis.patch.yml` 里按 id 覆盖：
 
-`press_key` accepts all 354 OpenHarmony InputKit `KEYCODE_*` definitions. Key
-names are case- and separator-insensitive, so `KEYCODE_PAGE_UP`, `PageUp`, and
-`page-up` are equivalent. Use `input_text` for strings and Chinese text.
-
-`click` and `long_press` report `dispatched=true, effect_verified=false` when
-the device accepts the command. This confirms delivery, not an application
-state change.
-
-For reliable text entry, call `find_elements` or `wait_for_element` first and
-pass the returned `element_handle` to `input_text`. A search target is also
-verified when it resolves to exactly one element. Coordinate mode cannot read
-the target value, so it sends the original text without cleanup tricks and
-returns `dispatched=true, verified=false`.
-
-`input_text` never toggles the active IME. Internally it uses direct entry for
-short ASCII digits, native paste for Unicode or long text, and a verified
-sentinel-assisted paste for other ASCII text. The sentinel is removed only
-after the exact sentinel-bearing value is observed. Paste strategies may
-replace the device clipboard; check `clipboard_modified` in the result.
-
-Handle and search modes first click the target, then observe both
-`focused=true` and a foreground target window before dispatching text. Set
-`INPUT_FOCUS_TIMEOUT_MS` to change the default `5000ms` focus budget. A
-background or occluded target that does not acquire focus returns
-`INPUT_FOCUS_TIMEOUT` without dispatching text.
-
-Input verification also uses a deadline rather than a fixed delay. Set
-`INPUT_VERIFY_TIMEOUT_MS` to change the default `15000ms` value budget.
-Successful observations return immediately. Password fields and some Web/Chromium
-accessibility fields may not expose or accept deterministic text operations;
-these return a verification error with the last observed `actual_text` instead
-of claiming success. A failed write may still leave partial text in the target.
-
-E2E tools:
-
-| Tool | Parameters |
-|---|---|
-| `get_ui_tree` | `device_id?`, `hdc_server?`, `bundle_name?`, `window_id?` |
-| `list_windows` | `device_id?`, `hdc_server?`, `bundle_name?` |
-| `wait_for_element` | `device_id?`, `hdc_server?`, `bundle_name?`, `window_id?`, `text*`, `element_type*`, `element_id*`, `state?="found"`, `timeout_ms?=5000`, `interval_ms?=300` |
-
-`wait_for_element.timeout_ms` is a strict wall-clock budget covering device
-queries, polling sleeps, and the stability confirmation. When the budget
-expires, the tool returns `WAIT_TIMEOUT` without starting another observation;
-`timeout_ms=0` returns immediately without querying the device.
-
-`build_app` supports HarmonyOS HAP, HAR, HSP, APP, and HNP build flows. HSP outputs can also be integrated into a HAP with `include_hsp=true`.
-
-Detailed validation rules, result fields, errors, and examples are in the [tool reference](docs/tool_reference.md).
-
-## Layout
-
-```text
-mcp_ho_dev/
-|- src/harmonyos_dev_mcp/
-|  |- build/                   # Hvigor build helpers, signing, packaging, and target handlers
-|  |- device/hdc/              # HDC device, package, app, file, and UI adapters
-|  |- logs/                    # Log query parsing and history support
-|  |- runtime/                 # Server factory and explicit MCP tool registration
-|  |- tools/                   # Public MCP tool entrypoints
-|  |- ui/                      # UI tree parsing, selectors, actions, and normalization
-|  |- utils/                   # Compatibility wrappers
-|  `- _common/                 # Shared runtime infrastructure bundled in this package
-|- tests/unit/                 # Unit tests grouped by domain
-|- docs/                       # Public tool and log query documentation
-|- scripts/                    # Release helpers
-|- pyproject.toml              # Project metadata and build config
-|- uv.lock
-|- README.md
+```yaml
+- id: harmonyos-dev-mcp
+  config:
+    pythonPath: C:\Path\To\.venv\Scripts\python.exe   # 显式指定 python（跳过自动解析）
+    # uvPath: C:\Path\To\uv.exe                       # 显式指定 uv
+    # useUv: false                                     # 禁用 uv 解析（改用系统 python）
+    # envDir: D:\cache\hm-env                         # uv 项目环境目录（默认 $DSH_HOME/plugin-envs/harmonyos-dev-mcp）
+    # serverName: hm                                  # 工具命名空间（默认 harmonyos -> mcp__harmonyos__*）
+    # toolCallTimeoutMs: 300000                        # 单次工具调用超时
+    # env:
+    #   HARMONYOS_HDC_SERVER: 192.168.43.34:35215     # 默认无线端点
 ```
 
-## Requirements
+Python 运行时解析顺序：
 
-- Python 3.12+
-- DevEco Studio 5.0+
-- HarmonyOS SDK toolchains, including `hdc`
-- `uv`
+1. `config.pythonPath`（显式）
+2. 插件包内 `.venv`（`uv sync` 创建的开发环境）
+3. `uv run --project <本包>`，且 `UV_PROJECT_ENVIRONMENT` 固定到
+   `$DSH_HOME/plugin-envs/harmonyos-dev-mcp`（避免污染 pnpm store）
+4. 系统 `python`（需已 `pip install harmonyos-dev-mcp`）
 
-## Install
+启动失败不会拖垮 profile：会记录错误日志，并在系统提示中说明修复方式。
 
-Install from PyPI:
+## 验收 / 排障
 
-```bash
-pip install harmonyos-dev-mcp
+```sh
+# 一键检查：运行时解析 + import probe + MCP 握手 + tools/list
+node node_modules/harmonyos-dev-mcp-for-dsh/bin/check.js
+
+# 加 --device：还会对 hdc 真机跑 list_devices / query_package / logs_query / get_ui_tree
+node node_modules/harmonyos-dev-mcp-for-dsh/bin/check.js --device
 ```
 
-Install from source for local development:
+常见问题：
 
-```bash
-uv sync
+- 工具没出现：先跑 `bin/check.js`；确认 profile 已重启；确认日志无 `[harmonyos-dev-mcp]` 错误。
+- `mcp__harmonyos__*` 调用报连接错误：真机是否连接（`hdc list targets`）、无线端点是否正确。
+- `build_app` 超时：确认 `toolCallTimeoutMs >= 120000`，冷构建建议 300s。
+
+## 本地开发
+
+```sh
+uv sync            # 准备 Python 环境
+uv run pytest tests/unit -v            # 上游单测（295 个）
+node bin/check.js --device --verbose   # 端到端验收
 ```
 
-Use `uv run` for development commands so Python resolves this checkout instead
-of another globally installed `harmonyos-dev-mcp` version:
+## 与上游的关系
 
-```bash
-uv run python -c "import harmonyos_dev_mcp; print(harmonyos_dev_mcp.__file__)"
-```
-
-## Run
-
-```bash
-uv run harmonyos-dev-mcp
-```
-
-Check connected devices:
-
-```bash
-hdc list targets
-```
-
-Use wireless debugging by IP:
-
-```python
-await list_devices(hdc_server="192.168.43.34:35215")
-await install_app(r"C:\path\to\app.hap", hdc_server="192.168.43.34:35215")
-```
-
-Or set a default endpoint:
-
-```bash
-set HARMONYOS_HDC_SERVER=192.168.43.34:35215
-```
-
-## Documentation
-
-- [Tool Reference](docs/tool_reference.md)
-- [Logs Query Guide](docs/logs_query.md)
-
-## Build Examples
-
-Build a debug HAP:
-
-```python
-await build_app(r"C:\path\to\project", target="hap", build_mode="debug", product="default")
-```
-
-Build HSP modules and integrate them into a HAP:
-
-```python
-await build_app(
-    r"C:\path\to\project",
-    target="hap",
-    build_mode="debug",
-    product="default",
-    include_hsp=True,
-    hsp_module_names=["library_one", "library_two"],
-)
-```
-
-Build an HNP-injected HAP:
-
-```python
-await build_app(r"C:\path\to\project", target="hnp", build_mode="debug", product="default")
-```
-
-## Development
-
-Run unit tests:
-
-```bash
-uv run pytest tests/unit -v
-```
-
-Run with coverage:
-
-```bash
-uv run pytest tests/unit -v --cov=harmonyos_dev_mcp
-```
-
-Build package artifacts:
-
-```bash
-uv build --out-dir dist --clear
-```
-
-## Notes
-
-- `build_app` is a long-running tool. Set MCP `tools/call timeout` to at least `60s`, and prefer `120s` for cold builds.
-- `build_app target="hnp"` builds a base HAP, injects module HNP packages from `entry/hnp`, and signs the HAP through SDK packaging tools.
-- `build_app target="hsp"` builds shared modules; `build_app target="hap" include_hsp=true` can integrate one or more HSP outputs into the HAP.
-- `logs_query` supports `errors` and `markers` modes.
-- The shared infrastructure that used to live in a separate common package is bundled in `harmonyos_dev_mcp._common`.
+本仓库 fork 自 [Deslord319/harmonyos-dev-mcp](https://github.com/Deslord319/harmonyos-dev-mcp)（Apache-2.0），
+在其之上增加了 dsh-plugin 外壳（`package.json` / `cordis.patch.yml` / `lib/` / `bin/`），
+Python 服务本体与文档原样保留。
 
 ## License
 
-Apache License 2.0
+Apache License 2.0（见 [LICENSE](LICENSE)）

@@ -1,0 +1,20 @@
+# harmonyos-dev-mcp-for-dsh bundle layer.
+#
+# Inserted automatically by `dsh plugin --profile <name> add <this-package>`.
+# The inserted row mounts this package's host plugin (lib/index.js); at
+# activation it resolves the Python runtime for the bundled harmonyos-dev-mcp
+# server and dynamically mounts the official @deepseek-ai/dsh-mcp-client
+# bridge, publishing the server's tools as mcp__harmonyos__<tool>.
+#
+# To override the plugin defaults, append an id-targeted config overlay to
+# your profile patch (cordis.patch.yml), for example:
+#
+#   - id: harmonyos-dev-mcp
+#     config:
+#       pythonPath: C:\Path\To\.venv\Scripts\python.exe
+#       serverName: harmonyos
+#       toolCallTimeoutMs: 300000
+#
+- insert:
+    - id: harmonyos-dev-mcp
+      name: harmonyos-dev-mcp-for-dsh
