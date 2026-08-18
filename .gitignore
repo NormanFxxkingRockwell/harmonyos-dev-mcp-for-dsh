@@ -63,3 +63,5 @@ npm-debug.log*
 
 # AI Tools
 .opencode/
+
+# npm auth files.npmrc

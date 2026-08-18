@@ -17,7 +17,10 @@
     "pyproject.toml",
     "uv.lock",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "!src/**/__pycache__/",
+    "!src/**/*.py[cod]",
+    "!docs/**/__pycache__/"
   ],
   "scripts": {
     "prepare": "node bin/prepare.cjs",
