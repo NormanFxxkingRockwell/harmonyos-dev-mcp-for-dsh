@@ -1,0 +1,12 @@
+# npm pack exclusions (applied inside the whitelisted "files" dirs)
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+.venv/
+node_modules/
+*.tgz
+*.log
+.hvigor/
+oh_modules/
+build/
+dist/

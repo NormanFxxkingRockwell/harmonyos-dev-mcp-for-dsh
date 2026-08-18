@@ -21,7 +21,9 @@
   ],
   "scripts": {
     "prepare": "node bin/prepare.cjs",
-    "check": "node bin/check.js"
+    "check": "node bin/check.js",
+    "pack:check": "npm pack --dry-run",
+    "publish": "npm publish --access public"
   },
   "dependencies": {},
   "license": "Apache-2.0",

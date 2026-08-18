@@ -34,19 +34,30 @@ Python 源码完整打包在本仓库（`src/`、`pyproject.toml`、`uv.lock`）
 - HarmonyOS SDK 工具链（`hdc`、DevEco Studio 5.0+），与官方 `harmonyos-dev-mcp` 要求一致
 
 ```sh
-# 方式一：GitHub 源码安装（推荐）
-dsh plugin --profile <你的profile> add github:NormanFxxkingRockwell/harmonyos-dev-mcp-for-dsh
+# 方式一（推荐）：npm registry 安装（发布后即用，无任何拦截）
+dsh plugin --profile <你的profile> add harmonyos-dev-mcp-for-dsh
+dsh plugin --profile <你的profile> update harmonyos-dev-mcp-for-dsh   # 升级
 
-# 方式二：本地 checkout（开发）
+# 方式二：GitHub 源码安装（免发布，可固定到 tag）
+dsh plugin --profile <你的profile> add github:NormanFxxkingRockwell/harmonyos-dev-mcp-for-dsh#v0.1.0
+
+# 方式三：本地 checkout（开发）
 dsh plugin --profile <你的profile> add file:<本仓库路径>
 ```
 
-若 pnpm 提示 git 源生命周期脚本被拦截，按提示把输出的 key 加入
-`<profile>/pnpm-workspace.yaml` 的 `allowBuilds` 后重跑；该脚本只做 uv 缓存预热，
-跳过也不影响运行。
+GitHub 源安装时 pnpm 会拦截 git 包的 prepare 脚本：按提示把输出的 key 加入
+`<profile>/pnpm-workspace.yaml` 的 `allowBuilds` 后重跑即可（该 key 锁定 commit
+hash，**用 `#v0.1.0` 固定 tag 后 key 不会随推送变动**；该脚本只做 uv 缓存预热，
+跳过也不影响运行）。
 
 重启 profile 后，在对话里直接说「列出连接的鸿蒙设备 / 安装这个 hap / 查看某应用界面 / 查最近错误日志」，
 模型会自动调用工具。
+
+## Release
+
+正式发布走 npm registry（`npm publish`，包名 `harmonyos-dev-mcp-for-dsh`，见 `package.json` 的
+`dsh.bundle.patch` 声明，`dsh plugin add` 会自动把它挂载为 profile bundle 层）。
+GitHub 仓库同步打 tag（如 `v0.1.0`）供 `github:#tag` 方式固定版本。
 
 ## 工具清单（18 个，命名空间 mcp__harmonyos__）
 
