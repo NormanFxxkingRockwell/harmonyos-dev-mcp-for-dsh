@@ -15,8 +15,8 @@
 cordis.patch.yml
   └─> id: harmonyos-dev-mcp (本包 lib/index.js)
         ├─ 1. 解析 Python 运行时（bundled .venv → uv run 项目环境 → 系统 python）
-        ├─ 2. probe：快速 import harmonyos_dev_mcp，失败给出可修复提示（不影响 profile 启动）
-        └─ 3. 以内嵌的轻量 MCP stdio 客户端（newline-delimited JSON-RPC）拉起 Python 服务器
+        ├─ 2. 拉起服务器并完成 MCP 握手（失败给出可修复提示，含服务器 stderr 尾部；不影响 profile 启动）
+        └─ 3. 以内嵌的轻量 MCP stdio 客户端（newline-delimited JSON-RPC）调用
               ├─ 18 个工具以 mcp__harmonyos__<tool> 注册到 ctx.tools
               └─ 崩溃监督：指数退避自动重启并重新同步工具（上限 5 次）
 ```
@@ -24,7 +24,9 @@ cordis.patch.yml
 只使用 Node 内置模块与宿主服务（`ctx.tools` / `ctx.systemPrompt`），不依赖任何 npm 包，
 避免把 @deepseek-ai/* 重复安装到 profile 造成符号不一致（会破坏宿主工具调度器）。
 
-Python 源码完整打包在本仓库（`src/`、`pyproject.toml`、`uv.lock`），运行时零下载（环境已有则直接用）。
+Python 源码完整打包在本仓库（`src/`、`pyproject.toml`、`uv.lock`）；**首次激活会自动用
+`uv` 按 lockfile 准备 Python 环境（需联网一次，之后秒级）**，环境目录固定在
+`$DSH_HOME/plugin-envs/harmonyos-dev-mcp`，不写入 pnpm store。
 
 ## 安装
 
@@ -87,6 +89,7 @@ GitHub 仓库同步打 tag（如 `v0.1.0`）供 `github:#tag` 方式固定版本
     # envDir: D:\cache\hm-env                         # uv 项目环境目录（默认 $DSH_HOME/plugin-envs/harmonyos-dev-mcp）
     # serverName: hm                                  # 工具命名空间（默认 harmonyos -> mcp__harmonyos__*）
     # toolCallTimeoutMs: 300000                        # 单次工具调用超时
+    # connectTimeoutMs: 120000                         # 服务器握手/首次环境准备预算（慢网络可调大）
     # env:
     #   HARMONYOS_HDC_SERVER: 192.168.43.34:35215     # 默认无线端点
 ```
@@ -116,6 +119,8 @@ node node_modules/harmonyos-dev-mcp-for-dsh/bin/check.js --device
 - 工具没出现：先跑 `bin/check.js`；确认 profile 已重启；确认日志无 `[harmonyos-dev-mcp]` 错误。
 - `mcp__harmonyos__*` 调用报连接错误：真机是否连接（`hdc list targets`）、无线端点是否正确。
 - `build_app` 超时：确认 `toolCallTimeoutMs >= 120000`，冷构建建议 300s。
+- `find_elements` 按 `element_id` 找不到：ArkUI 组件的 `.id()` **不会**出现在 uitest 的
+  ID 字段（那是 accessibilityId）；请改按 `text` 或 `element_type`（如 `Button`/`TextInput`/`ListItem`）查找。
 - 截图打不开 / vision 报「Declared image type does not match its bytes」：
   `screenshot` 的设备端 `snapshot_display` 只会产出 **JPEG** 字节（上游行为），
   无论 `local_path` 是什么后缀。请让模型把截图保存为 `.jpg`/`.jpeg` 路径
