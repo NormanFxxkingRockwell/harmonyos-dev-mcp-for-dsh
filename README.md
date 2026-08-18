@@ -105,6 +105,10 @@ node node_modules/harmonyos-dev-mcp-for-dsh/bin/check.js --device
 - 工具没出现：先跑 `bin/check.js`；确认 profile 已重启；确认日志无 `[harmonyos-dev-mcp]` 错误。
 - `mcp__harmonyos__*` 调用报连接错误：真机是否连接（`hdc list targets`）、无线端点是否正确。
 - `build_app` 超时：确认 `toolCallTimeoutMs >= 120000`，冷构建建议 300s。
+- 截图打不开 / vision 报「Declared image type does not match its bytes」：
+  `screenshot` 的设备端 `snapshot_display` 只会产出 **JPEG** 字节（上游行为），
+  无论 `local_path` 是什么后缀。请让模型把截图保存为 `.jpg`/`.jpeg` 路径
+  （或拿到 `.png` 文件后改名再交给 vision / read_image）。
 
 ## 本地开发
 
