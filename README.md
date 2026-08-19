@@ -3,6 +3,7 @@
 ![license](https://img.shields.io/badge/license-Apache--2.0-green)
 ![dsh](https://img.shields.io/badge/dsh-plugin-4B32C3)
 ![python](https://img.shields.io/badge/python-3.12+-blue)
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 
 **@deepseek-ai/dsh 插件：把 `harmonyos-dev-mcp`（HarmonyOS 设备 MCP 服务）桥接进 DeepSeek Harness**。
 安装后，AI 助手直接获得一套完整的鸿蒙开发工具：设备发现、构建/安装/启动/卸载、UI 自动化（点击/输入/按键/截图）、E2E 检查（UI 树/窗口/元素等待）、日志验证（错误提取/业务标记/历史日志/崩溃解析）。
