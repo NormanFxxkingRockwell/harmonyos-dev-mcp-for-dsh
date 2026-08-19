@@ -1,6 +1,6 @@
 {
   "name": "harmonyos-dev-mcp-for-dsh",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness plugin: bridges the harmonyos-dev-mcp Python MCP server (device discovery, build/deploy, UI automation, E2E inspection, log validation) into DSH as mcp__harmonyos__* tools. Zero npm dependencies.",
   "type": "module",
   "main": "lib/index.js",
